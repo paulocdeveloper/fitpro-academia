@@ -1,0 +1,39 @@
+================================================================================
+ERRO: npm error ENOENT — Could not read package.json
+================================================================================
+
+Significado: o npm foi executado numa pasta que NÃO é a do projeto (onde está o
+ficheiro package.json). Ex.: estás em /home/elbert mas o FitPro está outro sítio.
+
+PASSO A PASSO — opção A (recomendado)
+-------------------------------------
+1. Sai do MySQL antes de usar npm: no prompt "mysql>" escreve  \q  e Enter.
+2. Descobre a pasta do projeto (onde está package.json). Exemplos:
+   - Projeto no disco Windows via WSL:  cd "/mnt/c/Users/Paulo César/Downloads/b_vnzBf1cfYce-1773332101439"
+   - Ou abre o Cursor, clica com o botão direito na pasta do projeto → "Copy Path"
+3. Vai para essa pasta:
+     cd "/caminho/completo/ate/a/pasta/do/projeto"
+4. Confirma:
+     ls package.json
+   (deve mostrar package.json)
+5. Só agora:
+     npm run dev
+
+PASSO A PASSO — opção B (de qualquer pasta no WSL)
+---------------------------------------------------
+Usa o script com CAMINHO COMPLETO até ao ficheiro (ajusta para o teu PC):
+
+  bash "/mnt/c/Users/Paulo César/Downloads/b_vnzBf1cfYce-1773332101439/scripts/run-dev.sh"
+
+Primeira vez + base de dados:
+
+  bash "/mnt/c/Users/Paulo César/Downloads/b_vnzBf1cfYce-1773332101439/scripts/setup-and-dev.sh"
+
+NUNCA
+-----
+- Correr npm dentro do cliente mysql (prompt mysql>) — lá só comandos SQL.
+- Correr npm em ~ (/home/elbert) se o projeto não estiver aí.
+
+================================================================================
+Ligação: http://localhost:3000  |  Login: master@academia.com / Master@123
+================================================================================
