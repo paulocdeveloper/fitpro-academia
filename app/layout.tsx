@@ -10,6 +10,10 @@ export const metadata: Metadata = {
   title: 'FitPro — Gestão de Academia',
   description: 'Sistema completo de gestão para academias e personal trainers',
   generator: 'v0.app',
+  icons: {
+    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+    apple: '/icon.svg',
+  },
 }
 
 export const viewport: Viewport = {

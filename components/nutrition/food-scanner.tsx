@@ -68,7 +68,6 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -78,12 +77,19 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
   }, [])
 
   function getCameraErrorMessage(e: unknown): string {
+    if (e == null) return "Não foi possível abrir a câmera."
     const err = e as { name?: string; message?: string }
     const name = typeof err?.name === "string" ? err.name : ""
 
     // Bloqueios comuns: permissões, ausência de câmera, câmera em uso.
     if (name === "NotAllowedError" || name === "SecurityError") {
-      return "Permissão negada. Libere a câmera nas permissões do navegador e tente novamente."
+      return [
+        "Permissão negada para usar a câmera.",
+        "",
+        "Chrome / Edge: clique no ícone de cadeado na barra de endereço → Permissões do site → Câmera → Permitir. Se estiver em Bloquear, mude para Permitir e recarregue a página (F5).",
+        "",
+        "Windows: Configurações → Privacidade e segurança → Câmera → ative o acesso e permita o seu navegador.",
+      ].join("\n")
     }
     if (name === "NotFoundError") {
       return "Nenhuma câmera encontrada no dispositivo."
@@ -108,16 +114,18 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     return msg ? `Não foi possível abrir a câmera. (${msg})` : "Não foi possível abrir a câmera."
   }
 
-  async function tryGetUserMedia(constraints: MediaStreamConstraints) {
-    return await navigator.mediaDevices.getUserMedia(constraints)
-  }
-
-  const startCamera = async () => {
+  /**
+   * getUserMedia deve ser chamado no mesmo fluxo síncrono do clique (sem await antes),
+   * para o navegador manter o gesto do usuário. Usamos .then() — sem flushSync: no
+   * Next/Turbopack, importar flushSync de react-dom pode ser resolvido para o pacote
+   * errado e virar "is not a function". React 18+ faz batch de setState vindos de Promises.
+   */
+  const startCamera = useCallback(() => {
     stopCamera()
     setCameraError(null)
-    setState("camera")
 
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setState("camera")
       setCameraError("Seu navegador não suporta acesso à câmera (getUserMedia).")
       return
     }
@@ -126,55 +134,65 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
       const host = window.location.hostname
       const okHost = host === "localhost" || host === "127.0.0.1" || host === "::1"
       if (!window.isSecureContext && !okHost) {
+        setState("camera")
         setCameraError(`O navegador bloqueou a câmera em HTTP (${host}). Use localhost/127.0.0.1 ou HTTPS.`)
         return
       }
     }
 
-    try {
-      // 1) tenta câmera traseira (mobile)
-      let stream: MediaStream
-      try {
-        stream = await tryGetUserMedia({
-          audio: false,
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        })
-      } catch (e1) {
-        // 2) fallback: câmera frontal
-        try {
-          stream = await tryGetUserMedia({
-            audio: false,
-            video: { facingMode: { ideal: "user" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-          })
-        } catch (e2) {
-          // 3) fallback: qualquer câmera
-          stream = await tryGetUserMedia({
-            audio: false,
-            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-          }).catch(() => {
-            throw e2
-          })
-        }
-      }
-
+    const attachStream = (stream: MediaStream) => {
       streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await new Promise<void>((resolve) => {
-          const v = videoRef.current
-          if (!v) return resolve()
-          if (v.readyState >= 1) return resolve()
-          const onLoaded = () => resolve()
-          v.addEventListener("loadedmetadata", onLoaded, { once: true })
-        })
-        await videoRef.current.play().catch(() => {
-          // alguns navegadores podem falhar no play mesmo com stream ok
-        })
+      let frames = 0
+      const tryAttach = () => {
+        const v = videoRef.current
+        if (v) {
+          v.srcObject = stream
+          const play = () => {
+            void v.play().catch(() => {})
+          }
+          if (v.readyState >= 1) play()
+          else v.addEventListener("loadedmetadata", play, { once: true })
+          return
+        }
+        if (frames++ < 120) requestAnimationFrame(tryAttach)
       }
-    } catch (e) {
+      requestAnimationFrame(tryAttach)
+    }
+
+    const openModalWithError = (e: unknown) => {
+      setState("camera")
       setCameraError(getCameraErrorMessage(e))
     }
-  }
+
+    const constraintsList: MediaStreamConstraints[] = [
+      { audio: false, video: true },
+      { audio: false, video: { facingMode: { ideal: "environment" } } },
+      { audio: false, video: { facingMode: { ideal: "user" } } },
+      { audio: false, video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
+    ]
+
+    const attempt = (index: number, lastError: unknown) => {
+      if (index >= constraintsList.length) {
+        openModalWithError(lastError)
+        return
+      }
+      try {
+        navigator.mediaDevices.getUserMedia(constraintsList[index]).then(
+          (stream) => {
+            setState("camera")
+            attachStream(stream)
+          },
+          (err) => {
+            attempt(index + 1, err)
+          }
+        )
+      } catch (err) {
+        attempt(index + 1, err)
+      }
+    }
+
+    attempt(0, null)
+  }, [stopCamera])
 
   const simulateScanResult = () => {
     // Simula IA com 85% de chance de detectar
@@ -201,37 +219,6 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     }
     stopCamera()
     simulateScanResult()
-  }
-
-  const pickImage = () => fileInputRef.current?.click()
-
-  const handlePickedImage = async (file: File) => {
-    setCameraError(null)
-    setState("scanning")
-    stopCamera()
-
-    try {
-      const url = URL.createObjectURL(file)
-      const img = new Image()
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve()
-        img.onerror = () => reject(new Error("Falha ao carregar a imagem."))
-        img.src = url
-      })
-
-      if (canvasRef.current) {
-        const ctx = canvasRef.current.getContext("2d")
-        canvasRef.current.width = img.naturalWidth || img.width
-        canvasRef.current.height = img.naturalHeight || img.height
-        ctx?.drawImage(img, 0, 0)
-      }
-
-      URL.revokeObjectURL(url)
-      simulateScanResult()
-    } catch (e) {
-      setState("camera")
-      setCameraError(e instanceof Error ? e.message : "Falha ao processar a imagem.")
-    }
   }
 
   const selectedFood = useMemo(() => matches[selectedIdx] ?? null, [matches, selectedIdx])
@@ -414,17 +401,6 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
               {/* CÂMERA */}
               {(state === "camera") && (
                 <div className="space-y-4">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      e.target.value = ""
-                      if (f) void handlePickedImage(f)
-                    }}
-                  />
                   {cameraError ? (
                     <div
                       className="rounded-xl flex flex-col items-center justify-center gap-3 py-12 text-center"
@@ -433,13 +409,12 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                       <Camera className="w-10 h-10 text-muted-foreground" />
                       <div>
                         <p className="font-semibold text-sm">Câmera não disponível</p>
-                        <p className="text-xs text-muted-foreground mt-1">{cameraError}</p>
+                        <p className="text-xs text-muted-foreground mt-1 whitespace-pre-line text-left max-w-sm mx-auto">
+                          {cameraError}
+                        </p>
                       </div>
                       <Button size="sm" variant="outline" onClick={startCamera} className="gap-1.5 mt-1">
                         <RefreshCw className="w-3.5 h-3.5" /> Tentar novamente
-                      </Button>
-                      <Button size="sm" onClick={pickImage} className="gap-1.5">
-                        <ScanLine className="w-3.5 h-3.5" /> Enviar foto
                       </Button>
                     </div>
                   ) : (
@@ -469,21 +444,15 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                       </div>
                     </div>
                   )}
-                  <div className="flex gap-3">
-                    <Button
-                      className="flex-1 gap-2 font-semibold neon-glow"
-                      style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
-                      onClick={captureAndScan}
-                      disabled={!!cameraError}
-                    >
-                      <Zap className="w-4 h-4" />
-                      Capturar e Analisar
-                    </Button>
-                    <Button variant="outline" className="gap-2" onClick={pickImage}>
-                      <ScanLine className="w-4 h-4" />
-                      Enviar foto
-                    </Button>
-                  </div>
+                  <Button
+                    className="w-full gap-2 font-semibold neon-glow"
+                    style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
+                    onClick={captureAndScan}
+                    disabled={!!cameraError}
+                  >
+                    <Zap className="w-4 h-4" />
+                    Capturar e Analisar
+                  </Button>
                 </div>
               )}
 
@@ -721,7 +690,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                     </div>
                     <div>
                       <div className="h-full flex items-end">
-                        <Button variant="outline" className="w-full gap-2" onClick={() => setState("camera")}>
+                        <Button variant="outline" className="w-full gap-2" onClick={() => startCamera()}>
                           <Camera className="w-4 h-4" /> Voltar
                         </Button>
                       </div>

@@ -21,7 +21,7 @@ import {
   Bell,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
 type NavItem = {
   href: string
@@ -137,7 +137,6 @@ export function Sidebar() {
         </Link>
         <div className="flex items-center gap-3 px-3 py-2.5">
           <Avatar className="w-8 h-8">
-            <AvatarImage src="/placeholder-avatar.jpg" />
             <AvatarFallback style={{ background: "var(--primary)", color: "var(--primary-foreground)", fontSize: "11px" }}>AD</AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
