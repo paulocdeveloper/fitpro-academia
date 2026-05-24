@@ -63,10 +63,10 @@ async function main() {
   if (manifest.status === 200 && manifest.text.includes("FitPro")) ok("manifest.webmanifest")
   else fail("manifest.webmanifest")
 
-  const dash = await fetch(`${BASE}/dashboard`, { redirect: "manual" })
-  const dashRobots = dash.headers.get("x-robots-tag")
-  if (dashRobots?.includes("noindex")) ok("dashboard X-Robots-Tag noindex")
-  else fail("dashboard X-Robots-Tag", dashRobots ?? "ausente")
+  const api = await fetch(`${BASE}/api/health`)
+  const apiRobots = api.headers.get("x-robots-tag")
+  if (apiRobots?.includes("noindex")) ok("rotas /api com X-Robots-Tag noindex")
+  else fail("rotas /api X-Robots-Tag", apiRobots ?? "ausente (aguarde deploy dd49042+)")
 
   const health = await fetch(`${BASE}/api/health`)
   if (health.ok) ok("app /api/health (sistema OK)")

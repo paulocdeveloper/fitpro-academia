@@ -109,10 +109,10 @@ export function buildPageMetadata(input: PageMetaInput): Metadata {
   const description = input.description ?? defaultDescription
   const url = `${siteUrl}${input.path}`
   const indexable = !input.noIndex
-  const title = pageTitle(input.title)
+  const fullTitle = pageTitle(input.title)
 
   return {
-    title,
+    title: input.title,
     description,
     keywords: input.keywords ?? defaultKeywords,
     alternates: { canonical: url },
