@@ -3,6 +3,7 @@ import { MIN_CONFIDENCE } from "@/lib/nutrition/types"
 import { aggregateItems, buildLevels, mealQualityFromTotals } from "@/lib/nutrition/macros"
 import { getOpenAIConfig } from "@/lib/nutrition/openai-config"
 import { filterValidItems, normalizeMacroItem } from "@/lib/nutrition/validate-macros"
+import { refineAllItems } from "@/lib/nutrition/taco-sanity"
 
 const SYSTEM_PROMPT = `Você é uma IA nutricional especializada em comida brasileira e reconhecimento visual de pratos.
 Analise APENAS o que é visível na imagem. Responda em português do Brasil.
@@ -149,7 +150,8 @@ export async function analyzeWithOpenAI(
     .map((it) => normalizeMacroItem(it, confiancaGeral))
     .filter((it): it is DetectedFoodItem => it !== null)
 
-  const validItems = filterValidItems(items, confiancaGeral)
+  const refinedItems = refineAllItems(items)
+  const validItems = filterValidItems(refinedItems, confiancaGeral)
 
   if (validItems.length === 0 || confiancaGeral < MIN_CONFIDENCE) {
     return {

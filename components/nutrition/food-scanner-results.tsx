@@ -51,6 +51,33 @@ function MacroBadge({ label, value, unit, color }: { label: string; value: numbe
   )
 }
 
+function ConfidenceRing({ value }: { value: number }) {
+  const color = value >= 75 ? "var(--primary)" : value >= 55 ? "oklch(0.75 0.18 80)" : "oklch(0.65 0.2 200)"
+  return (
+    <div className="relative w-14 h-14 shrink-0">
+      <svg className="w-14 h-14 -rotate-90" viewBox="0 0 36 36">
+        <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--border)" strokeWidth="3" />
+        <circle
+          cx="18"
+          cy="18"
+          r="15.5"
+          fill="none"
+          stroke={color}
+          strokeWidth="3"
+          strokeDasharray={`${value} 100`}
+          strokeLinecap="round"
+        />
+      </svg>
+      <span
+        className="absolute inset-0 flex items-center justify-center text-[11px] font-bold"
+        style={{ color, fontFamily: "var(--font-space-grotesk)" }}
+      >
+        {value}%
+      </span>
+    </div>
+  )
+}
+
 function LevelPill({ label, level }: { label: string; level: MacroLevel }) {
   return (
     <div
@@ -109,6 +136,7 @@ export function FoodScannerResults({
         style={{ background: "var(--neon-dim)", border: "1px solid var(--primary)30" }}
       >
         <div className="flex items-start gap-3">
+          <ConfidenceRing value={confianca_geral} />
           <div
             className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 neon-glow"
             style={{ background: "var(--primary)" }}

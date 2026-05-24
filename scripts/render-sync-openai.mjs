@@ -30,7 +30,7 @@ function loadDotEnv() {
 }
 
 async function api(path, options = {}) {
-  const key = process.env.RENDER_API_KEY?.trim()
+  const key = (process.env.RENDER_API_KEY || loadDotEnv().RENDER_API_KEY || "").trim()
   if (!key) {
     throw new Error("RENDER_API_KEY ausente. Defina no ambiente antes de executar.")
   }
@@ -86,11 +86,17 @@ async function triggerDeploy(serviceId) {
 }
 
 const env = loadDotEnv()
-const openaiKey = env.OPENAI_API_KEY?.trim()
+const openaiKey = (process.env.OPENAI_API_KEY || env.OPENAI_API_KEY || "").trim()
 if (!openaiKey) {
-  throw new Error("OPENAI_API_KEY ausente no .env local. Adicione sua chave antes de sincronizar.")
+  throw new Error("OPENAI_API_KEY ausente no .env local ou ambiente.")
 }
-const model = env.OPENAI_VISION_MODEL?.trim() || "gpt-4o"
+const renderKey = (process.env.RENDER_API_KEY || env.RENDER_API_KEY || "").trim()
+if (!renderKey) {
+  throw new Error("RENDER_API_KEY ausente no .env local ou ambiente.")
+}
+process.env.RENDER_API_KEY = renderKey
+
+const model = (process.env.OPENAI_VISION_MODEL || env.OPENAI_VISION_MODEL || "gpt-4o").trim()
 
 console.log("=== Render: sincronizar OpenAI Vision ===\n")
 

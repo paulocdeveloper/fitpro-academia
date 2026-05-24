@@ -245,7 +245,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     }
 
     if (stability < 0.55) {
-      setQualityHint("Segure firme e aguarde a estabilizacao antes de capturar.")
+      setQualityHint("Segure firme e aguarde a estabilização antes de capturar.")
       return
     }
 
@@ -291,13 +291,13 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
       if (result.ok && result.items.length > 0) {
         setState("detected")
       } else {
-        setQualityHint(result.error ?? "Confianca insuficiente para identificar o prato.")
+        setQualityHint(result.error ?? "Confiança insuficiente para identificar o prato.")
         setState(result.imageQuality?.ok === false ? "poor_quality" : "not_found")
       }
     } catch {
       clearInterval(stepTimer)
       setState("not_found")
-      setQualityHint("Erro de conexao ao analisar a imagem.")
+      setQualityHint("Erro de conexão ao analisar a imagem.")
     }
   }
 
@@ -457,18 +457,18 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                   <p className="font-semibold text-sm" style={{ fontFamily: "var(--font-space-grotesk)" }}>
                     {state === "camera" && "Escanear Comida"}
                     {state === "scanning" && "IA Nutricional"}
-                    {state === "detected" && "Analise Completa"}
-                    {state === "not_found" && "Nao Identificado"}
+                    {state === "detected" && "Análise Completa"}
+                    {state === "not_found" && "Não Identificado"}
                     {state === "poor_quality" && "Imagem Inadequada"}
                     {state === "manual" && "Adicionar Manualmente"}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {state === "camera" && "Aponte para o prato — deteccao automatica"}
+                    {state === "camera" && "Aponte para o prato — detecção automática"}
                     {state === "scanning" && SCAN_STEPS[scanStep]}
                     {state === "detected" && "Macros estimados pela IA"}
                     {state === "not_found" && "Tente novamente com melhor enquadramento"}
                     {state === "poor_quality" && "Ajuste luz e estabilidade"}
-                    {state === "manual" && "Opcional — use se a IA nao reconhecer"}
+                    {state === "manual" && "Opcional — use se a IA não reconhecer"}
                   </p>
                 </div>
               </div>
@@ -619,7 +619,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                       </div>
                     </div>
                     <div className="text-center space-y-1 w-full">
-                      <p className="font-semibold text-sm">IA Nutricional</p>
+                      <p className="font-semibold text-sm">IA Nutricional · GPT-4o Vision</p>
                       <p className="text-xs text-muted-foreground animate-pulse">{SCAN_STEPS[scanStep]}</p>
                     </div>
                     <div className="w-full space-y-1.5">
@@ -704,7 +704,17 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                     <Button
                       className="flex-1 gap-2 font-semibold"
                       style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
-                      onClick={() => setState("manual")}
+                      onClick={() => {
+                        if (analysis?.items?.[0] && !manualName) {
+                          setManualName(analysis.items[0].nome)
+                          setManualGrams(String(analysis.items[0].quantidade_g))
+                          setManualKcal100(String(analysis.items[0].kcal))
+                          setManualProt100(String(analysis.items[0].proteinas_g))
+                          setManualCarbo100(String(analysis.items[0].carboidratos_g))
+                          setManualGord100(String(analysis.items[0].gorduras_g))
+                        }
+                        setState("manual")
+                      }}
                     >
                       <Pencil className="w-4 h-4" />
                       Inserir manual
