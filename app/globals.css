@@ -160,6 +160,12 @@
     color: oklch(0.7 0.22 145);
     border-left: 2px solid oklch(0.7 0.22 145);
   }
+  [data-slot="sidebar-inset"] {
+    max-width: 100%;
+  }
+  [data-slot="sidebar-wrapper"] {
+    overflow-x: hidden;
+  }
   .status-pago {
     background: oklch(0.7 0.22 145 / 0.15);
     color: oklch(0.7 0.22 145);

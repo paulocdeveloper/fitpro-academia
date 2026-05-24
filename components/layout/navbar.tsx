@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { Bell, Search, Plus } from "lucide-react"
+import { SidebarToggle } from "@/components/layout/sidebar-toggle"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -20,15 +21,26 @@ interface NavbarProps {
 
 export function Navbar({ title, subtitle, action }: NavbarProps) {
   return (
-    <header className="flex items-center justify-between px-6 py-4 border-b border-border/50" style={{ background: "var(--background)" }}>
-      <div>
-        <h1 className="text-xl font-bold tracking-tight" style={{ fontFamily: "var(--font-space-grotesk)" }}>
-          {title}
-        </h1>
-        {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
+    <header
+      className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-border/50 px-3 py-3 sm:px-4 md:px-6 md:py-4"
+      style={{ background: "var(--background)" }}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+        <SidebarToggle />
+        <div className="min-w-0">
+          <h1
+            className="truncate text-lg font-bold tracking-tight sm:text-xl"
+            style={{ fontFamily: "var(--font-space-grotesk)" }}
+          >
+            {title}
+          </h1>
+          {subtitle && (
+            <p className="truncate text-xs text-muted-foreground sm:text-sm">{subtitle}</p>
+          )}
+        </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <div className="relative hidden md:block">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -65,13 +77,14 @@ export function Navbar({ title, subtitle, action }: NavbarProps) {
           (action.href ? (
             <Button
               size="sm"
-              className="gap-2 font-semibold"
+              className="gap-1.5 font-semibold sm:gap-2"
               style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
               asChild
             >
-              <Link href={action.href} className="inline-flex items-center gap-2">
-                <Plus className="w-4 h-4" />
-                {action.label}
+              <Link href={action.href} className="inline-flex items-center gap-1.5 sm:gap-2">
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">{action.label}</span>
+                <span className="sm:hidden">Novo</span>
               </Link>
             </Button>
           ) : (
