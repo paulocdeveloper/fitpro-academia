@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState, useRef, useEffect, useCallback } from "react"
-import { Camera, X, ScanLine, RefreshCw, Zap, Plus, Pencil, Check } from "lucide-react"
+import { Camera, X, ScanLine, RefreshCw, Zap, Plus, Pencil, Check, SwitchCamera } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
@@ -23,6 +23,49 @@ export type ScannedFood = {
 }
 
 type ScannerState = "idle" | "camera" | "scanning" | "detected" | "not_found" | "manual"
+type CameraFacing = "environment" | "user"
+
+function buildCameraConstraints(facing: CameraFacing, allowFrontFallback: boolean): MediaStreamConstraints[] {
+  const list: MediaStreamConstraints[] = [
+    {
+      audio: false,
+      video: {
+        facingMode: { exact: facing },
+        width: { ideal: 1920, max: 1920 },
+        height: { ideal: 1080, max: 1080 },
+      },
+    },
+    {
+      audio: false,
+      video: {
+        facingMode: { ideal: facing },
+        width: { ideal: 1280, max: 1280 },
+        height: { ideal: 720, max: 720 },
+      },
+    },
+    {
+      audio: false,
+      video: {
+        facingMode: { ideal: facing },
+      },
+    },
+    {
+      audio: false,
+      video: { facingMode: facing },
+    },
+  ]
+
+  if (allowFrontFallback && facing === "environment") {
+    list.push(
+      { audio: false, video: { facingMode: { ideal: "user" } } },
+      { audio: false, video: true },
+    )
+  } else {
+    list.push({ audio: false, video: true })
+  }
+
+  return list
+}
 
 const ALIMENTOS_SIMULADOS: { nome: string }[] = [
   { nome: "Frango grelhado" },
@@ -65,6 +108,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
   const [manualCarbo100, setManualCarbo100] = useState("")
   const [manualGord100, setManualGord100] = useState("")
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [facingMode, setFacingMode] = useState<CameraFacing>("environment")
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -86,9 +130,11 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
       return [
         "Permissão negada para usar a câmera.",
         "",
-        "Chrome / Edge: clique no ícone de cadeado na barra de endereço → Permissões do site → Câmera → Permitir. Se estiver em Bloquear, mude para Permitir e recarregue a página (F5).",
+        "iPhone (Safari): Ajustes → Safari → Câmera → Permitir. Ou toque em “Permitir” quando o navegador solicitar.",
         "",
-        "Windows: Configurações → Privacidade e segurança → Câmera → ative o acesso e permita o seu navegador.",
+        "Android (Chrome): toque em Permitir no pop-up. Se bloqueou antes: ícone de cadeado na barra → Câmera → Permitir.",
+        "",
+        "No Instagram/navegador interno: abra o link no Chrome ou Safari se a câmera não funcionar.",
       ].join("\n")
     }
     if (name === "NotFoundError") {
@@ -120,7 +166,10 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
    * Next/Turbopack, importar flushSync de react-dom pode ser resolvido para o pacote
    * errado e virar "is not a function". React 18+ faz batch de setState vindos de Promises.
    */
-  const startCamera = useCallback(() => {
+  const startCamera = useCallback((preferredFacing?: CameraFacing) => {
+    const facing = preferredFacing ?? facingMode
+    if (preferredFacing) setFacingMode(preferredFacing)
+
     stopCamera()
     setCameraError(null)
 
@@ -164,12 +213,8 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
       setCameraError(getCameraErrorMessage(e))
     }
 
-    const constraintsList: MediaStreamConstraints[] = [
-      { audio: false, video: true },
-      { audio: false, video: { facingMode: { ideal: "environment" } } },
-      { audio: false, video: { facingMode: { ideal: "user" } } },
-      { audio: false, video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
-    ]
+    const allowFrontFallback = facing === "environment"
+    const constraintsList = buildCameraConstraints(facing, allowFrontFallback)
 
     const attempt = (index: number, lastError: unknown) => {
       if (index >= constraintsList.length) {
@@ -192,7 +237,12 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     }
 
     attempt(0, null)
-  }, [stopCamera])
+  }, [stopCamera, facingMode])
+
+  const switchCamera = useCallback(() => {
+    const next: CameraFacing = facingMode === "environment" ? "user" : "environment"
+    startCamera(next)
+  }, [facingMode, startCamera])
 
   const simulateScanResult = () => {
     // Simula IA com 85% de chance de detectar
@@ -342,7 +392,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
         size="sm"
         className="gap-2 text-xs font-semibold neon-glow"
         style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
-        onClick={startCamera}
+        onClick={() => startCamera("environment")}
       >
         <Camera className="w-3.5 h-3.5" />
         Escanear Comida
@@ -413,14 +463,35 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                           {cameraError}
                         </p>
                       </div>
-                      <Button size="sm" variant="outline" onClick={startCamera} className="gap-1.5 mt-1">
+                      <Button size="sm" variant="outline" onClick={() => startCamera("environment")} className="gap-1.5 mt-1">
                         <RefreshCw className="w-3.5 h-3.5" /> Tentar novamente
                       </Button>
                     </div>
                   ) : (
                     <div className="relative rounded-xl overflow-hidden aspect-video bg-black">
-                      <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover"
+                        style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
+                      />
                       <canvas ref={canvasRef} className="hidden" />
+                      <button
+                        type="button"
+                        onClick={switchCamera}
+                        className="absolute top-3 right-3 z-10 flex h-10 w-10 items-center justify-center rounded-full transition-colors"
+                        style={{
+                          background: "oklch(0.05 0.005 260 / 0.75)",
+                          backdropFilter: "blur(4px)",
+                          color: "var(--foreground)",
+                        }}
+                        aria-label={facingMode === "environment" ? "Usar câmera frontal" : "Usar câmera traseira"}
+                        title={facingMode === "environment" ? "Câmera traseira (toque para frontal)" : "Câmera frontal (toque para traseira)"}
+                      >
+                        <SwitchCamera className="h-5 w-5" />
+                      </button>
                       {/* Scan overlay */}
                       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="relative w-48 h-48">
@@ -440,7 +511,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                         className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-xs font-medium"
                         style={{ background: "oklch(0.05 0.005 260 / 0.75)", backdropFilter: "blur(4px)", color: "var(--foreground)" }}
                       >
-                        Posicione o alimento no centro
+                        Posicione o alimento no centro · {facingMode === "environment" ? "Traseira" : "Frontal"}
                       </div>
                     </div>
                   )}
@@ -607,7 +678,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                     </div>
                   </div>
                   <div className="flex gap-3">
-                    <Button variant="outline" className="flex-1 gap-2" onClick={startCamera}>
+                    <Button variant="outline" className="flex-1 gap-2" onClick={() => startCamera("environment")}>
                       <RefreshCw className="w-4 h-4" />
                       Tentar novamente
                     </Button>
