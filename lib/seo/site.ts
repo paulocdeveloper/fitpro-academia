@@ -76,10 +76,13 @@ export const privatePathPrefixes = [
   "/_next",
 ]
 
+/** Token público Google Search Console (meta google-site-verification) */
+export const googleSiteVerificationCode = "KCz9wC4niSIgw4eYXIMNHhnkmVgAFUB-5uhMOYA-CvE"
+
 export const googleSiteVerification =
   process.env.GOOGLE_SITE_VERIFICATION?.trim() ||
   process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION?.trim() ||
-  undefined
+  googleSiteVerificationCode
 
 type PageMetaInput = {
   title: string
@@ -205,7 +208,7 @@ export const rootMetadata: Metadata = {
     shortcut: ["/icon.svg"],
   },
   manifest: "/manifest.webmanifest",
-  verification: googleSiteVerification ? { google: googleSiteVerification } : undefined,
+  verification: { google: googleSiteVerification },
   other: {
     "mobile-web-app-capable": "yes",
     "apple-mobile-web-app-capable": "yes",

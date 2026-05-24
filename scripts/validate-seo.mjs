@@ -98,8 +98,11 @@ async function main() {
   if (health.ok) ok("app /api/health (sistema OK)")
   else fail("app health", String(health.status))
 
-  const gscReady = true
-  if (gscReady) ok("Google Search Console ready (meta verification + sitemap)")
+  const gscToken = "KCz9wC4niSIgw4eYXIMNHhnkmVgAFUB-5uhMOYA-CvE"
+  const loginHtml = (await fetchText("/login")).text
+  if (loginHtml.includes("google-site-verification") && loginHtml.includes(gscToken)) {
+    ok("Google Search Console verification meta tag")
+  } else fail("Google Search Console verification meta tag", "ausente ou token incorreto")
 
   console.log("\n--- Links produção ---")
   console.log("Sitemap:     ", `${BASE}/sitemap.xml`)
