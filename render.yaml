@@ -1,0 +1,28 @@
+# Blueprint Render — FitPro com Supabase PostgreSQL
+# https://render.com/docs/blueprint-spec
+#
+# IMPORTANTE: No painel Render → Environment, defina APENAS:
+#   DATABASE_URL, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, JWT_SECRET
+# Remova: DB_HOST, DB_DATABASE, MYSQL_URL, MYSQL_HOST, MYSQL_DATABASE
+#
+# Depois: Manual Deploy → Clear build cache & deploy
+
+services:
+  - type: web
+    name: fitpro-academia
+    runtime: node
+    plan: free
+    buildCommand: rm -rf .next && npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false

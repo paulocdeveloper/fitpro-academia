@@ -22,7 +22,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Search, PlayCircle, Dumbbell, Plus } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ProgramasTreinoView } from "@/components/exercicios/programas-treino-view"
+import { BIBLIOTECA_EXERCICIOS, countBibliotecaPorGrupo } from "@/lib/biblioteca-from-programas"
+import { Search, PlayCircle, Dumbbell, Plus, LayoutGrid, BookOpen } from "lucide-react"
 
 type Exercicio = {
   id: string
@@ -32,27 +35,13 @@ type Exercicio = {
   nivel: string
   video: boolean
   descricao: string
+  series?: string
+  ficha?: string
 }
 
-const exerciciosSeed: Omit<Exercicio, "id">[] = [
-  { nome: "Supino Reto com Barra", grupo: "Peito", equipamento: "Barra", nivel: "Intermediário", video: true, descricao: "Deite no banco, segure a barra com pegada afastada e execute o movimento controlado." },
-  { nome: "Agachamento Livre", grupo: "Pernas", equipamento: "Barra", nivel: "Avançado", video: true, descricao: "Posicione a barra nos ombros, mantenha o core ativo e desça até o paralelo." },
-  { nome: "Puxada Frente", grupo: "Costas", equipamento: "Polia", nivel: "Iniciante", video: true, descricao: "Segure a barra larga, puxe até a altura do queixo com os cotovelos apontando para baixo." },
-  { nome: "Desenvolvimento com Halteres", grupo: "Ombros", equipamento: "Halteres", nivel: "Intermediário", video: false, descricao: "Sentado, empurre os halteres acima da cabeça em arco natural." },
-  { nome: "Rosca Direta", grupo: "Bíceps", equipamento: "Barra", nivel: "Iniciante", video: true, descricao: "Em pé, com barra na pegada supinada, execute a flexão do cotovelo." },
-  { nome: "Tríceps Pulley", grupo: "Tríceps", equipamento: "Polia", nivel: "Iniciante", video: true, descricao: "Segure a polia alta, cotovelos fixos, extensão completa." },
-  { nome: "Levantamento Terra", grupo: "Posterior", equipamento: "Barra", nivel: "Avançado", video: true, descricao: "Quadril para trás, coluna neutra, levante a barra do chão com força nos glúteos." },
-  { nome: "Remada Curvada", grupo: "Costas", equipamento: "Barra", nivel: "Intermediário", video: false, descricao: "Curvado a 45°, puxe a barra até o abdômen com cotovelos abertos." },
-  { nome: "Burpee", grupo: "Full Body", equipamento: "Nenhum", nivel: "Avançado", video: true, descricao: "Agacha, apoia as mãos, joga os pés, faz a flexão, salta com os braços acima." },
-  { nome: "Prancha", grupo: "Core", equipamento: "Nenhum", nivel: "Iniciante", video: false, descricao: "Apoio nos antebraços e dedos dos pés, corpo em linha reta." },
-  { nome: "Leg Press 45°", grupo: "Pernas", equipamento: "Máquina", nivel: "Iniciante", video: true, descricao: "Pés na plataforma, empurre de forma controlada sem travar os joelhos." },
-  { nome: "Elevação Lateral", grupo: "Ombros", equipamento: "Halteres", nivel: "Iniciante", video: false, descricao: "Em pé, eleve os halteres lateralmente até a altura dos ombros." },
-]
-
-const exerciciosInicial: Exercicio[] = exerciciosSeed.map((e, i) => ({
-  ...e,
-  id: `ex-${i + 1}`,
-}))
+const exerciciosInicial: Exercicio[] = BIBLIOTECA_EXERCICIOS
+const contagemPorGrupo = countBibliotecaPorGrupo()
+const TOTAL_PROGRAMA = exerciciosInicial.length
 
 const grupos = ["Todos", "Peito", "Costas", "Pernas", "Ombros", "Bíceps", "Tríceps", "Posterior", "Full Body", "Core"]
 const gruposMuscular = grupos.filter((g) => g !== "Todos")
@@ -134,8 +123,8 @@ export default function ExerciciosPage() {
   return (
     <div>
       <Navbar
-        title="Biblioteca de Exercícios"
-        subtitle="Catálogo completo de exercícios"
+        title="Exercícios & Treinos"
+        subtitle="Programas por nível e biblioteca de movimentos"
         action={{
           label: "Novo Exercício",
           onClick: () => {
@@ -146,6 +135,29 @@ export default function ExerciciosPage() {
       />
 
       <div className="p-6 space-y-5">
+        <Tabs defaultValue="biblioteca" className="space-y-5">
+          <TabsList className="bg-secondary border border-border/50 p-1 h-auto flex-wrap">
+            <TabsTrigger value="programas" className="gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary">
+              <LayoutGrid className="w-4 h-4" />
+              Programas de treino
+            </TabsTrigger>
+            <TabsTrigger value="biblioteca" className="gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary">
+              <BookOpen className="w-4 h-4" />
+              Biblioteca
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="programas" className="mt-0">
+            <ProgramasTreinoView />
+          </TabsContent>
+
+          <TabsContent value="biblioteca" className="mt-0 space-y-5">
+        <p className="text-sm text-muted-foreground rounded-lg px-4 py-3 metric-card border border-border/50">
+          Catálogo com <strong className="text-foreground">{TOTAL_PROGRAMA} exercícios</strong> dos
+          programas (iniciante, intermediário e avançado). Com filtro <strong>Peito</strong> aparecem{" "}
+          <strong className="text-foreground">{contagemPorGrupo.Peito ?? 0}</strong> movimentos — use
+          nível &quot;Todos&quot; para ver todos de uma vez.
+        </p>
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -170,7 +182,9 @@ export default function ExerciciosPage() {
             <SelectContent>
               {grupos.map((g) => (
                 <SelectItem key={g} value={g}>
-                  {g}
+                  {g === "Todos"
+                    ? `Todos (${exercicios.length})`
+                    : `${g} (${contagemPorGrupo[g] ?? 0})`}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -206,7 +220,15 @@ export default function ExerciciosPage() {
 
               <div>
                 <h3 className="font-semibold group-hover:text-primary transition-colors">{ex.nome}</h3>
+                {ex.series && (
+                  <p className="text-xs font-mono mt-1" style={{ color: nivelColors[ex.nivel] }}>
+                    {ex.series}
+                  </p>
+                )}
                 <p className="text-sm text-muted-foreground mt-1 leading-relaxed line-clamp-2">{ex.descricao}</p>
+                {ex.ficha && (
+                  <p className="text-xs text-muted-foreground/80 mt-1 truncate">{ex.ficha}</p>
+                )}
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
@@ -224,7 +246,28 @@ export default function ExerciciosPage() {
           ))}
         </div>
 
-        <p className="text-sm text-muted-foreground text-center">{filtered.length} exercícios encontrados</p>
+        {filtered.length === 0 && grupo !== "Todos" && (contagemPorGrupo[grupo] ?? 0) > 0 && (
+          <p className="text-sm text-amber-400/90 text-center" role="status">
+            Nenhum exercício com nível &quot;{nivel}&quot; em {grupo}. Mude o filtro de nível para{" "}
+            <button
+              type="button"
+              className="underline font-medium"
+              onClick={() => setNivel("Todos")}
+            >
+              Todos
+            </button>{" "}
+            para ver os {contagemPorGrupo[grupo]} movimentos deste grupo.
+          </p>
+        )}
+        <p className="text-sm text-muted-foreground text-center">
+          {filtered.length === 1
+            ? "1 exercício encontrado"
+            : `${filtered.length} exercícios encontrados`}
+          {grupo !== "Todos" ? ` em ${grupo}` : ""}
+          {nivel !== "Todos" ? ` · ${nivel}` : ""}
+        </p>
+          </TabsContent>
+        </Tabs>
       </div>
 
       <Dialog

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import { query } from "@/lib/db"
+import { getDbConnectionInfo } from "@/lib/db-config"
+import { isMissingColumn, mapDbConnectionError } from "@/lib/db-errors"
 import { ensureUserAcademiaId } from "@/lib/auth/resolve-academia"
 import { signAccessToken } from "@/lib/auth/jwt"
 import { perfilToRole } from "@/lib/auth/roles"
@@ -16,46 +18,7 @@ type UsuarioRow = {
 }
 
 function mapDbError(e: unknown): { status: number; error: string } | null {
-  if (!e || typeof e !== "object") return null
-  const err = e as { code?: string; message?: string }
-  const code = err.code
-  const msg = typeof err.message === "string" ? err.message : ""
-
-  if (code === "ECONNREFUSED" || code === "ENOTFOUND") {
-    return {
-      status: 503,
-      error:
-        "Não foi possível ligar ao MySQL. Confirme que o servidor está ligado e que DB_HOST e DB_PORT no .env estão corretos.",
-    }
-  }
-  if (code === "ER_ACCESS_DENIED_ERROR") {
-    return {
-      status: 503,
-      error:
-        "MySQL recusou o acesso. Verifique DB_USER e DB_PASSWORD no .env (devem ser os mesmos dados com que entra no HeidiSQL/phpMyAdmin).",
-    }
-  }
-  if (code === "ER_BAD_DB_ERROR" || /unknown database/i.test(msg)) {
-    return {
-      status: 503,
-      error:
-        "A base de dados não existe. Crie a base ou ajuste DB_DATABASE no .env e execute: npm run db:bootstrap",
-    }
-  }
-  if (code === "ER_NO_SUCH_TABLE") {
-    return {
-      status: 503,
-      error: "Tabelas em falta na base. Execute: npm run db:bootstrap",
-    }
-  }
-  if (code === "ER_BAD_FIELD_ERROR") {
-    return {
-      status: 503,
-      error:
-        "Falta coluna SaaS na base (ex.: usuarios.academia_id). No terminal: npm run db:fix-saas  ou  npm run db:bootstrap",
-    }
-  }
-  return null
+  return mapDbConnectionError(e)
 }
 
 export async function POST(req: Request) {
@@ -76,8 +39,7 @@ export async function POST(req: Request) {
       )
       user = rows[0]
     } catch (selErr) {
-      const c = typeof selErr === "object" && selErr !== null ? (selErr as { code?: string }).code : ""
-      if (c !== "ER_BAD_FIELD_ERROR") throw selErr
+      if (!isMissingColumn(selErr)) throw selErr
       hasAcademiaColumn = false
       const rows = await query<{
         id: number
@@ -176,7 +138,17 @@ export async function POST(req: Request) {
     })
     return res
   } catch (e) {
-    console.error("login", e)
+    let info: Record<string, unknown> = {}
+    try {
+      info = getDbConnectionInfo()
+    } catch {
+      info = { configured: false }
+    }
+    console.error("login DB error", {
+      ...info,
+      code: (e as { code?: string })?.code,
+      message: e instanceof Error ? e.message : String(e),
+    })
     const mapped = mapDbError(e)
     if (mapped) {
       return NextResponse.json({ error: mapped.error }, { status: mapped.status })

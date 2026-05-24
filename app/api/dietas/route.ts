@@ -21,10 +21,7 @@ type DietaRow = {
   refeicoes_json: string
 }
 
-function missingTable(e: unknown) {
-  const code = typeof e === "object" && e !== null ? (e as { code?: string }).code : undefined
-  return code === "ER_NO_SUCH_TABLE"
-}
+import { isMissingTable } from "@/lib/db-errors"
 
 function mapRow(row: DietaRow) {
   return {
@@ -53,7 +50,7 @@ export async function GET(req: Request) {
     return NextResponse.json(rows.map(mapRow))
   } catch (e) {
     console.error("GET /api/dietas", e)
-    if (missingTable(e)) {
+    if (isMissingTable(e)) {
       return NextResponse.json(
         {
           error: "Tabela dietas inexistente. Execute npm run db:bootstrap ou aplique data/migrate_dietas.sql.",
@@ -151,7 +148,7 @@ export async function POST(req: Request) {
     return NextResponse.json(mapRow(row), { status: 201 })
   } catch (e) {
     console.error("POST /api/dietas", e)
-    if (missingTable(e)) {
+    if (isMissingTable(e)) {
       return NextResponse.json(
         {
           error: "Tabela dietas inexistente. Execute npm run db:bootstrap ou aplique data/migrate_dietas.sql.",

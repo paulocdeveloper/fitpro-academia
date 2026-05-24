@@ -16,8 +16,15 @@ PASSO A PASSO — opção A (recomendado)
 4. Confirma:
      ls package.json
    (deve mostrar package.json)
-5. Só agora:
+5. Só agora (se der erro "port 3000 in use", use o passo 5b):
      npm run dev
+
+PASSO 5b — porta 3000 ocupada (servidor antigo)
+------------------------------------------------
+     npm run dev:restart
+
+   Isso mata o processo na porta 3000 e sobe o Next com cache limpo.
+   Depois abra http://localhost:3000/exercicios e use Ctrl+F5.
 
 PASSO A PASSO — opção B (de qualquer pasta no WSL)
 ---------------------------------------------------

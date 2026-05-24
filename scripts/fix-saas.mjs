@@ -4,25 +4,9 @@
  * Requer Node 20.6+ e ficheiro .env
  */
 import mysql from "mysql2/promise"
+import { requireDbConfig } from "./db-env.mjs"
 
-function requireEnv(name) {
-  const v = process.env[name]
-  if (v === undefined || String(v).trim() === "") {
-    console.error(`Variável ausente: ${name}. Copie .env.example para .env.`)
-    process.exit(1)
-  }
-  return v
-}
-
-requireEnv("DB_HOST")
-requireEnv("DB_USER")
-requireEnv("DB_DATABASE")
-const DB_PASSWORD = process.env.DB_PASSWORD ?? ""
-
-const host = process.env.DB_HOST
-const port = Number(process.env.DB_PORT ?? 3306)
-const user = process.env.DB_USER
-const database = process.env.DB_DATABASE
+const { poolOptions, database } = requireDbConfig()
 
 function q(ident) {
   return `\`${String(ident).replace(/`/g, "")}\``
@@ -56,13 +40,7 @@ async function ensureAcademiaIdColumn(db, tableName, academiaId) {
 }
 
 console.log("A ligar ao MySQL (fix SaaS)…")
-const db = await mysql.createConnection({
-  host,
-  port,
-  user,
-  password: DB_PASSWORD,
-  database,
-})
+const db = await mysql.createConnection(poolOptions)
 
 await db.query(`
 CREATE TABLE IF NOT EXISTS academias (

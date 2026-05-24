@@ -11,10 +11,7 @@ type AlimentoRow = {
   gorduras_100g: number
 }
 
-function missingTable(e: unknown) {
-  const code = typeof e === "object" && e !== null ? (e as { code?: string }).code : undefined
-  return code === "ER_NO_SUCH_TABLE"
-}
+import { isMissingTable } from "@/lib/db-errors"
 
 export async function GET(req: Request) {
   const auth = await requireStaff(req)
@@ -36,7 +33,7 @@ export async function GET(req: Request) {
     return NextResponse.json(rows)
   } catch (e) {
     console.error("GET /api/nutrition/alimentos", e)
-    if (missingTable(e)) {
+    if (isMissingTable(e)) {
       return NextResponse.json(
         { error: "Tabela alimentos inexistente. Execute npm run db:bootstrap ou data/migrate_alimentos.sql." },
         { status: 503 },
@@ -104,7 +101,7 @@ export async function POST(req: Request) {
     return NextResponse.json(rows[0] ?? { id, nome, kcal_100g: Math.round(kcal), proteinas_100g: p, carbos_100g: c, gorduras_100g: g }, { status: 201 })
   } catch (e) {
     console.error("POST /api/nutrition/alimentos", e)
-    if (missingTable(e)) {
+    if (isMissingTable(e)) {
       return NextResponse.json(
         { error: "Tabela alimentos inexistente. Execute npm run db:bootstrap ou data/migrate_alimentos.sql." },
         { status: 503 },

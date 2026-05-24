@@ -5,32 +5,13 @@
  */
 import bcrypt from "bcryptjs"
 import mysql from "mysql2/promise"
+import { requireDbConfig } from "./db-env.mjs"
 
 const EMAIL = "master@academia.com"
 const PLAIN = "Master@123"
 
-function requireEnv(name) {
-  const v = process.env[name]
-  if (v === undefined || String(v).trim() === "") {
-    console.error(`Variável ausente: ${name}. Confira o ficheiro .env (veja .env.example).`)
-    process.exit(1)
-  }
-  return v
-}
-
-requireEnv("DB_HOST")
-requireEnv("DB_USER")
-requireEnv("DB_DATABASE")
-
-const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT ?? 3306),
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD ?? "",
-  database: process.env.DB_DATABASE,
-  waitForConnections: true,
-  connectionLimit: 1,
-})
+const { poolOptions } = requireDbConfig()
+const pool = mysql.createPool({ ...poolOptions, connectionLimit: 1 })
 
 const hash = await bcrypt.hash(PLAIN, 10)
 if (!(await bcrypt.compare(PLAIN, hash))) {

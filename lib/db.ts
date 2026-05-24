@@ -1,44 +1,131 @@
-import mysql from "mysql2/promise"
-import type { ResultSetHeader } from "mysql2"
+import pg from "pg"
+import {
+  appendReturningId,
+  tableExistsParams,
+  tableExistsSql,
+  toPgPlaceholders,
+} from "@/lib/db-dialect"
+import { getDbConnectionInfo, loadEnvFile, resolveDbConfig } from "@/lib/db-config"
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST ?? "127.0.0.1",
-  port: Number(process.env.DB_PORT ?? 3306),
-  user: process.env.DB_USER ?? "root",
-  password: process.env.DB_PASSWORD ?? "",
-  database: process.env.DB_DATABASE ?? "academia",
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-})
+export type { DbDialect } from "@/lib/db-config"
+export { getDbDialect, resolveDbConfig, getDbConnectionInfo, isSupabaseConfigured, loadEnvFile } from "@/lib/db-config"
 
-export async function query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
-  const [rows] = await pool.execute(sql, params)
-  return rows as T[]
+loadEnvFile()
+
+export type DbExecutor = {
+  query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>
+  execute(sql: string, params?: unknown[]): Promise<number>
+  insertRow(sql: string, params?: unknown[]): Promise<number>
 }
 
-export async function execute(sql: string, params: any[] = []): Promise<number> {
-  const [result] = await pool.execute(sql, params)
-  return (result as ResultSetHeader).affectedRows
+let pgPool: pg.Pool | null = null
+let poolSignature: string | null = null
+
+function pgPoolInstance(): pg.Pool {
+  const cfg = resolveDbConfig()
+  const sig = `${cfg.pgConnectionString}|${process.env.DB_SSL ?? ""}`
+  if (pgPool && poolSignature === sig) return pgPool
+
+  if (pgPool) {
+    void pgPool.end().catch(() => {})
+  }
+
+  const useSsl =
+    cfg.host.includes("supabase") ||
+    process.env.DB_SSL === "true" ||
+    process.env.NODE_ENV === "production"
+
+  pgPool = new pg.Pool({
+    connectionString: cfg.pgConnectionString,
+    ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+    max: 10,
+    connectionTimeoutMillis: 20_000,
+  })
+  poolSignature = sig
+
+  if (process.env.NODE_ENV === "development") {
+    const info = getDbConnectionInfo()
+    console.info(
+      "[db] Supabase PostgreSQL",
+      `${info.user}@${info.host}:${info.port}/${info.database}`,
+      `(schema: ${info.schema})`,
+    )
+  }
+
+  return pgPool
 }
 
-export async function insertRow(sql: string, params: any[] = []): Promise<number> {
-  const [result] = await pool.execute(sql, params)
-  return Number((result as ResultSetHeader).insertId)
+async function runQuery<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+  const res = await pgPoolInstance().query(toPgPlaceholders(sql), params)
+  return res.rows as T[]
 }
 
-/** Transação com uma conexão do pool (ex.: registro academia + usuário). */
-export async function withTransaction<T>(fn: (conn: mysql.PoolConnection) => Promise<T>): Promise<T> {
-  const conn = await pool.getConnection()
+async function runExecute(sql: string, params: unknown[] = []): Promise<number> {
+  const res = await pgPoolInstance().query(toPgPlaceholders(sql), params)
+  return res.rowCount ?? 0
+}
+
+async function runInsertRow(sql: string, params: unknown[] = []): Promise<number> {
+  const insertSql = appendReturningId(sql, "postgres")
+  const res = await pgPoolInstance().query<{ id: number }>(toPgPlaceholders(insertSql), params)
+  return Number(res.rows[0]?.id)
+}
+
+export async function query<T = unknown>(sql: string, params: unknown[] = []): Promise<T[]> {
+  return runQuery<T>(sql, params)
+}
+
+export async function execute(sql: string, params: unknown[] = []): Promise<number> {
+  return runExecute(sql, params)
+}
+
+export async function insertRow(sql: string, params: unknown[] = []): Promise<number> {
+  return runInsertRow(sql, params)
+}
+
+export async function tableExists(tableName: string): Promise<boolean> {
+  const cfg = resolveDbConfig()
+  const rows = await query<{ c: number | string }>(
+    tableExistsSql("postgres", cfg.schema, tableName),
+    tableExistsParams("postgres", cfg.schema, tableName),
+  )
+  return Number(rows[0]?.c) > 0
+}
+
+const executor: DbExecutor = {
+  query,
+  execute,
+  insertRow,
+}
+
+export async function withTransaction<T>(fn: (tx: DbExecutor) => Promise<T>): Promise<T> {
+  const client = await pgPoolInstance().connect()
+  const tx: DbExecutor = {
+    async query<T>(sql: string, params: unknown[] = []) {
+      const res = await client.query(toPgPlaceholders(sql), params)
+      return res.rows as T[]
+    },
+    async execute(sql: string, params: unknown[] = []) {
+      const res = await client.query(toPgPlaceholders(sql), params)
+      return res.rowCount ?? 0
+    },
+    async insertRow(sql: string, params: unknown[] = []) {
+      const insertSql = appendReturningId(sql, "postgres")
+      const res = await client.query<{ id: number }>(toPgPlaceholders(insertSql), params)
+      return Number(res.rows[0]?.id)
+    },
+  }
   try {
-    await conn.beginTransaction()
-    const out = await fn(conn)
-    await conn.commit()
+    await client.query("BEGIN")
+    const out = await fn(tx)
+    await client.query("COMMIT")
     return out
   } catch (e) {
-    await conn.rollback()
+    await client.query("ROLLBACK")
     throw e
   } finally {
-    conn.release()
+    client.release()
   }
 }
+
+export { executor as db }

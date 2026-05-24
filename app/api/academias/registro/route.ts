@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
-import type { ResultSetHeader } from "mysql2"
 import { withTransaction } from "@/lib/db"
+import { dbBool } from "@/lib/db-bool"
+import { isDuplicateEntry } from "@/lib/db-errors"
 import { signAccessToken } from "@/lib/auth/jwt"
 import { perfilToRole } from "@/lib/auth/roles"
 import { AUTH_COOKIE } from "@/lib/auth/session"
@@ -36,24 +37,20 @@ export async function POST(req: Request) {
 
     const hash = await bcrypt.hash(password, 10)
 
-    const { academiaId, userId } = await withTransaction(async (conn) => {
-      const [aRes] = await conn.execute<ResultSetHeader>("INSERT INTO academias (nome) VALUES (?)", [nomeAcademia])
-      const academiaId = Number(aRes.insertId)
+    const { academiaId, userId } = await withTransaction(async (tx) => {
+      const academiaId = await tx.insertRow("INSERT INTO academias (nome) VALUES (?)", [nomeAcademia])
       if (!Number.isFinite(academiaId) || academiaId < 1) {
         throw new Error("Falha ao criar academia")
       }
 
       try {
-        const [uRes] = await conn.execute<ResultSetHeader>(
-          "INSERT INTO usuarios (nome, email, senha_hash, perfil, ativo, academia_id) VALUES (?, ?, ?, 'admin', 1, ?)",
-          [nomeAdmin, email, hash, academiaId],
+        const userId = await tx.insertRow(
+          "INSERT INTO usuarios (nome, email, senha_hash, perfil, ativo, academia_id) VALUES (?, ?, ?, 'admin', ?, ?)",
+          [nomeAdmin, email, hash, dbBool(true), academiaId],
         )
-        const userId = Number(uRes.insertId)
         return { academiaId, userId }
       } catch (e: unknown) {
-        const code = (e as { code?: string; errno?: number })?.code
-        const errno = (e as { errno?: number })?.errno
-        if (code === "ER_DUP_ENTRY" || errno === 1062) {
+        if (isDuplicateEntry(e)) {
           const err = new Error("DUPLICATE_EMAIL")
           ;(err as Error & { code: string }).code = "DUPLICATE_EMAIL"
           throw err

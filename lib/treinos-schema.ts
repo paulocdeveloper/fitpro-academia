@@ -1,7 +1,9 @@
 import { query } from "@/lib/db"
+import { resolveDbConfig } from "@/lib/db-config"
+import { quoteIdent } from "@/lib/db-dialect"
 
 export type TreinosColumnMap = {
-  /** Nome real da tabela no MySQL (ex.: Treinos em Linux). */
+  /** Nome real da tabela (ex.: Treinos em Linux no MySQL). */
   tableName: string
   /** Coluna tenant (SaaS); null se ainda não migrada. */
   academiaId: string | null
@@ -23,7 +25,7 @@ export type TreinoDbRow = {
 }
 
 function q(ident: string) {
-  return `\`${String(ident).replace(/`/g, "")}\``
+  return quoteIdent(ident, "postgres")
 }
 
 function firstActual(
@@ -38,52 +40,41 @@ function firstActual(
 }
 
 function schemaName(): string {
-  const db = process.env.DB_DATABASE?.trim()
-  if (!db) {
-    throw new Error('Defina DB_DATABASE no .env (nome da base MySQL onde está a tabela treinos).')
-  }
-  return db
+  return resolveDbConfig().schema
 }
 
 /**
  * Lê as colunas reais de `treinos` e mapeia para o que a API espera.
- * Usa DB_DATABASE (não DATABASE()) para bater certo com o pool em lib/db.ts.
  */
 export async function getTreinosColumnMap(): Promise<TreinosColumnMap> {
   const db = schemaName()
-
-  const tables = await query<{ TABLE_NAME: string }>(
-    `SELECT TABLE_NAME FROM information_schema.TABLES
-     WHERE TABLE_SCHEMA = ? AND LOWER(TABLE_NAME) = 'treinos' LIMIT 1`,
+  const tables = await query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = ? AND LOWER(table_name) = 'treinos' LIMIT 1`,
     [db],
   )
-  const tableName = tables[0]?.TABLE_NAME
+  const tableName = tables[0]?.table_name
   if (!tableName) {
     throw new Error(
-      `Não existe tabela "treinos" na base "${db}". Execute data/schema_treinos_rbac.sql ou data/migrate_treinos_fitpro.sql.`,
+      `Não existe tabela "treinos" no schema "${db}". Execute: npm run db:bootstrap`,
     )
   }
 
-  /** Preferir SHOW COLUMNS (reflecte a tabela real; evita desfasamento com information_schema). */
-  const rawCols = await query<Record<string, unknown>>(
-    `SHOW COLUMNS FROM ${q(db)}.${q(tableName)}`,
+  const cols = await query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = ? AND table_name = ?`,
+    [db, tableName],
   )
-  const cols: { COLUMN_NAME: string }[] = rawCols
-    .map((r) => {
-      const name = r.Field ?? r.field ?? r.COLUMN_NAME
-      if (typeof name === "string" && name.length > 0) return { COLUMN_NAME: name }
-      const vals = Object.values(r)
-      const s = vals.find((v) => typeof v === "string") as string | undefined
-      return { COLUMN_NAME: s ?? "" }
-    })
-    .filter((c) => c.COLUMN_NAME.length > 0)
 
-  if (cols.length === 0) {
-    throw new Error(`Não foi possível ler colunas de ${db}.${tableName} (SHOW COLUMNS vazio).`)
-  }
+  const lowerToActual = new Map(cols.map((c) => [c.column_name.toLowerCase(), c.column_name]))
+  return buildColumnMap(tableName, lowerToActual, cols.map((c) => c.column_name))
+}
 
-  const lowerToActual = new Map(cols.map((c) => [c.COLUMN_NAME.toLowerCase(), c.COLUMN_NAME]))
-
+function buildColumnMap(
+  tableName: string,
+  lowerToActual: Map<string, string>,
+  colNames: string[],
+): TreinosColumnMap {
   const userId =
     firstActual(lowerToActual, [
       "user_id",
@@ -98,9 +89,9 @@ export async function getTreinosColumnMap(): Promise<TreinosColumnMap> {
   const nome = firstActual(lowerToActual, ["nome", "titulo", "name", "descricao"]) ?? null
 
   if (!userId || !nome) {
-    const have = cols.map((c) => c.COLUMN_NAME).join(", ")
+    const have = colNames.join(", ")
     throw new Error(
-      `Tabela "${tableName}" sem colunas reconhecidas (dono + nome). Colunas: ${have}. Ver data/migrate_treinos_fitpro.sql`,
+      `Tabela "${tableName}" sem colunas reconhecidas (dono + nome). Colunas: ${have}.`,
     )
   }
 
