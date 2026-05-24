@@ -1,17 +1,16 @@
 "use client"
 
-import { useMemo, useState, useRef, useEffect, useCallback } from "react"
-import { Camera, X, ScanLine, RefreshCw, Zap, Plus, Pencil, Check, SwitchCamera } from "lucide-react"
+import { useState, useRef, useEffect, useCallback } from "react"
+import { Camera, X, ScanLine, RefreshCw, Zap, Plus, Pencil, SwitchCamera, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-
-type FoodPer100g = {
-  nome: string
-  kcal_100g: number
-  proteinas_100g: number
-  carbos_100g: number
-  gorduras_100g: number
-}
+import {
+  FoodScannerResults,
+  itemToScannedFood,
+  plateToScannedFood,
+} from "@/components/nutrition/food-scanner-results"
+import { captureFrameQuality, frameStabilityScore } from "@/lib/nutrition/client-image-quality"
+import type { MealAnalysisResult } from "@/lib/nutrition/types"
 
 export type ScannedFood = {
   nome: string
@@ -22,8 +21,7 @@ export type ScannedFood = {
   gorduras_g: number
 }
 
-type ScannerState = "idle" | "camera" | "scanning" | "detected" | "not_found" | "manual"
-type CameraFacing = "environment" | "user"
+type ScannerState = "idle" | "camera" | "scanning" | "detected" | "not_found" | "poor_quality" | "manual"
 
 function buildCameraConstraints(facing: CameraFacing, allowFrontFallback: boolean): MediaStreamConstraints[] {
   const list: MediaStreamConstraints[] = [
@@ -67,39 +65,22 @@ function buildCameraConstraints(facing: CameraFacing, allowFrontFallback: boolea
   return list
 }
 
-const ALIMENTOS_SIMULADOS: { nome: string }[] = [
-  { nome: "Frango grelhado" },
-  { nome: "Arroz branco cozido" },
-  { nome: "Ovo cozido" },
-  { nome: "Banana" },
-  { nome: "Feijão cozido" },
-  { nome: "Macarrão cozido" },
-  { nome: "Carne moída cozida (média gordura)" },
-]
+type CameraFacing = "environment" | "user"
 
-function MacroBadge({ label, value, unit, color }: { label: string; value: number; unit: string; color: string }) {
-  return (
-    <div
-      className="flex flex-col items-center justify-center rounded-xl p-3 gap-0.5"
-      style={{ background: `${color}18`, border: `1px solid ${color}30` }}
-    >
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="font-bold text-base" style={{ color, fontFamily: "var(--font-space-grotesk)" }}>
-        {value}
-        <span className="text-xs font-normal ml-0.5">{unit}</span>
-      </span>
-    </div>
-  )
-}
+const SCAN_STEPS = [
+  "Validando qualidade da imagem...",
+  "Detectando alimentos no prato...",
+  "Classificando macros nutricionais...",
+  "Calculando calorias e confiança...",
+]
 
 export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => void }) {
   const [state, setState] = useState<ScannerState>("idle")
-  const [detectedName, setDetectedName] = useState<string | null>(null)
-  const [matches, setMatches] = useState<FoodPer100g[]>([])
-  const [matchesLoading, setMatchesLoading] = useState(false)
-  const [matchesError, setMatchesError] = useState<string | null>(null)
-  const [selectedIdx, setSelectedIdx] = useState(0)
-  const [grams, setGrams] = useState("150")
+  const [analysis, setAnalysis] = useState<MealAnalysisResult | null>(null)
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [scanStep, setScanStep] = useState(0)
+  const [stability, setStability] = useState(0)
+  const [qualityHint, setQualityHint] = useState<string | null>(null)
 
   const [manualName, setManualName] = useState("")
   const [manualGrams, setManualGrams] = useState("150")
@@ -112,6 +93,8 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const prevFrameRef = useRef<Uint8ClampedArray | null>(null)
+  const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -244,57 +227,91 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     startCamera(next)
   }, [facingMode, startCamera])
 
-  const simulateScanResult = () => {
-    // Simula IA com 85% de chance de detectar
-    setTimeout(() => {
-      const sucesso = Math.random() > 0.15
-      if (sucesso) {
-        const alimento = ALIMENTOS_SIMULADOS[Math.floor(Math.random() * ALIMENTOS_SIMULADOS.length)]
-        setDetectedName(alimento.nome)
+  const captureAndScan = async () => {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas) return
+
+    const captured = captureFrameQuality(video, canvas)
+    if (!captured) {
+      setState("poor_quality")
+      return
+    }
+
+    if (!captured.report.ok) {
+      setPreviewImage(captured.dataUrl)
+      setQualityHint(captured.report.issues.join(" "))
+      setState("poor_quality")
+      stopCamera()
+      return
+    }
+
+    if (stability < 0.55) {
+      setQualityHint("Segure firme e aguarde a estabilizacao antes de capturar.")
+      return
+    }
+
+    setPreviewImage(captured.dataUrl)
+    setState("scanning")
+    setScanStep(0)
+    stopCamera()
+
+    const stepTimer = window.setInterval(() => {
+      setScanStep((s) => Math.min(s + 1, SCAN_STEPS.length - 1))
+    }, 700)
+
+    try {
+      const res = await fetch("/api/nutrition/analyze", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image: captured.dataUrl,
+          pixels: captured.pixels,
+          width: captured.report.width,
+          height: captured.report.height,
+          quality: {
+            ok: captured.report.ok,
+            score: captured.report.score,
+            issues: captured.report.issues,
+          },
+        }),
+      })
+      const data = (await res.json().catch(() => null)) as MealAnalysisResult | { error?: string }
+      clearInterval(stepTimer)
+
+      if (!res.ok) {
+        setAnalysis(null)
+        setState("not_found")
+        setQualityHint(typeof data?.error === "string" ? data.error : "Falha na analise.")
+        return
+      }
+
+      const result = data as MealAnalysisResult
+      setAnalysis(result)
+
+      if (result.ok && result.items.length > 0) {
         setState("detected")
       } else {
-        setState("not_found")
+        setQualityHint(result.error ?? "Confianca insuficiente para identificar o prato.")
+        setState(result.imageQuality?.ok === false ? "poor_quality" : "not_found")
       }
-    }, 2200)
-  }
-
-  const captureAndScan = () => {
-    setState("scanning")
-    // captura frame no canvas
-    if (canvasRef.current && videoRef.current) {
-      const ctx = canvasRef.current.getContext("2d")
-      canvasRef.current.width = videoRef.current.videoWidth
-      canvasRef.current.height = videoRef.current.videoHeight
-      ctx?.drawImage(videoRef.current, 0, 0)
+    } catch {
+      clearInterval(stepTimer)
+      setState("not_found")
+      setQualityHint("Erro de conexao ao analisar a imagem.")
     }
-    stopCamera()
-    simulateScanResult()
   }
 
-  const selectedFood = useMemo(() => matches[selectedIdx] ?? null, [matches, selectedIdx])
-  const computed = useMemo(() => {
-    const g = Number(grams)
-    if (!selectedFood || !Number.isFinite(g) || g <= 0) return null
-    const mult = g / 100
-    const kcal = Math.round(selectedFood.kcal_100g * mult)
-    const p = Number((selectedFood.proteinas_100g * mult).toFixed(1))
-    const c = Number((selectedFood.carbos_100g * mult).toFixed(1))
-    const fat = Number((selectedFood.gorduras_100g * mult).toFixed(1))
-    return { g, kcal, p, c, fat }
-  }, [grams, selectedFood])
+  const handleConfirmItem = (item: Parameters<typeof itemToScannedFood>[0]) => {
+    onAddFood?.(itemToScannedFood(item))
+    handleClose()
+  }
 
-  const handleConfirm = () => {
-    if (!selectedFood || !computed) return
-    onAddFood?.({
-      nome: selectedFood.nome,
-      quantidade_g: computed.g,
-      calorias_kcal: computed.kcal,
-      proteinas_g: computed.p,
-      carboidratos_g: computed.c,
-      gorduras_g: computed.fat,
-    } satisfies ScannedFood as any)
-    setState("idle")
-    setDetectedName(null)
+  const handleConfirmPlate = () => {
+    if (!analysis) return
+    onAddFood?.(plateToScannedFood(analysis))
+    handleClose()
   }
 
   const handleManualAdd = async () => {
@@ -345,45 +362,45 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
   const handleClose = () => {
     stopCamera()
     setState("idle")
-    setDetectedName(null)
+    setAnalysis(null)
+    setPreviewImage(null)
     setCameraError(null)
+    setQualityHint(null)
+    setStability(0)
+    prevFrameRef.current = null
   }
 
   useEffect(() => () => stopCamera(), [stopCamera])
 
   useEffect(() => {
-    if (state !== "detected" || !detectedName) return
-    let cancelled = false
-    setMatchesLoading(true)
-    setMatchesError(null)
-    setMatches([])
-    setSelectedIdx(0)
-    ;(async () => {
-      try {
-        const res = await fetch(`/api/nutrition/alimentos?query=${encodeURIComponent(detectedName)}`, {
-          credentials: "include",
-        })
-        const data = await res.json().catch(() => null)
-        if (!res.ok) {
-          const msg = typeof data?.error === "string" ? data.error : "Não foi possível buscar alimentos."
-          throw new Error(msg)
-        }
-        if (!cancelled) {
-          setMatches(Array.isArray(data) ? (data as FoodPer100g[]) : [])
-          if (Array.isArray(data) && data.length > 0) {
-            setGrams("150")
-          }
-        }
-      } catch (e) {
-        if (!cancelled) setMatchesError(e instanceof Error ? e.message : "Falha ao buscar alimentos.")
-      } finally {
-        if (!cancelled) setMatchesLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+    if (state !== "camera" || cameraError) return
+    let raf = 0
+    if (!sampleCanvasRef.current && typeof document !== "undefined") {
+      sampleCanvasRef.current = document.createElement("canvas")
     }
-  }, [detectedName, state])
+    const tick = () => {
+      const v = videoRef.current
+      const sc = sampleCanvasRef.current
+      if (v && sc && v.readyState >= 2 && v.videoWidth > 0) {
+        const sw = 64
+        const sh = Math.round((v.videoHeight / v.videoWidth) * sw)
+        sc.width = sw
+        sc.height = sh
+        const ctx = sc.getContext("2d")
+        if (ctx) {
+          ctx.drawImage(v, 0, 0, sw, sh)
+          const data = ctx.getImageData(0, 0, sw, sh).data
+          if (prevFrameRef.current && prevFrameRef.current.length === data.length) {
+            setStability(frameStabilityScore(prevFrameRef.current, data))
+          }
+          prevFrameRef.current = new Uint8ClampedArray(data)
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [state, cameraError])
 
   return (
     <>
@@ -423,17 +440,19 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                 <div>
                   <p className="font-semibold text-sm" style={{ fontFamily: "var(--font-space-grotesk)" }}>
                     {state === "camera" && "Escanear Comida"}
-                    {state === "scanning" && "Analisando com IA..."}
-                    {state === "detected" && "Alimento Detectado"}
-                    {state === "not_found" && "Não Identificado"}
+                    {state === "scanning" && "IA Nutricional"}
+                    {state === "detected" && "Analise Completa"}
+                    {state === "not_found" && "Nao Identificado"}
+                    {state === "poor_quality" && "Imagem Inadequada"}
                     {state === "manual" && "Adicionar Manualmente"}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {state === "camera" && "Aponte para o prato ou código de barras"}
-                    {state === "scanning" && "Processando imagem..."}
-                    {state === "detected" && "Confirme as informações nutricionais"}
-                    {state === "not_found" && "Tente novamente ou insira manualmente"}
-                    {state === "manual" && "Digite os dados do alimento"}
+                    {state === "camera" && "Aponte para o prato — deteccao automatica"}
+                    {state === "scanning" && SCAN_STEPS[scanStep]}
+                    {state === "detected" && "Macros estimados pela IA"}
+                    {state === "not_found" && "Tente novamente com melhor enquadramento"}
+                    {state === "poor_quality" && "Ajuste luz e estabilidade"}
+                    {state === "manual" && "Opcional — use se a IA nao reconhecer"}
                   </p>
                 </div>
               </div>
@@ -506,7 +525,24 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                           <ScanLine className="absolute inset-0 m-auto w-6 h-6 opacity-0" />
                         </div>
                       </div>
-                      {/* hint badge */}
+                      <div className="absolute bottom-12 left-3 right-3 space-y-1.5">
+                        <div className="flex justify-between text-[10px] text-muted-foreground px-1">
+                          <span>Estabilidade</span>
+                          <span>{Math.round(stability * 100)}%</span>
+                        </div>
+                        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--secondary)" }}>
+                          <div
+                            className="h-full transition-all duration-300 rounded-full"
+                            style={{
+                              width: `${Math.round(stability * 100)}%`,
+                              background: stability >= 0.55 ? "var(--primary)" : "oklch(0.75 0.18 80)",
+                            }}
+                          />
+                        </div>
+                      </div>
+                      {qualityHint && state === "camera" && (
+                        <p className="absolute top-14 left-3 right-14 text-[10px] text-amber-400/90">{qualityHint}</p>
+                      )}
                       <div
                         className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-xs font-medium"
                         style={{ background: "oklch(0.05 0.005 260 / 0.75)", backdropFilter: "blur(4px)", color: "var(--foreground)" }}
@@ -519,7 +555,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                     className="w-full gap-2 font-semibold neon-glow"
                     style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
                     onClick={captureAndScan}
-                    disabled={!!cameraError}
+                    disabled={!!cameraError || stability < 0.55}
                   >
                     <Zap className="w-4 h-4" />
                     Capturar e Analisar
@@ -529,156 +565,106 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
 
               {/* SCANNING */}
               {state === "scanning" && (
-                <div className="flex flex-col items-center justify-center py-10 gap-5">
-                  <div className="relative w-20 h-20">
-                    <div
-                      className="w-20 h-20 rounded-full border-2 animate-spin"
-                      style={{ borderColor: "var(--border)", borderTopColor: "var(--primary)" }}
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Zap className="w-7 h-7 neon-text" />
-                    </div>
-                  </div>
-                  <div className="text-center space-y-1">
-                    <p className="font-semibold text-sm">IA processando imagem</p>
-                    <p className="text-xs text-muted-foreground">Identificando alimentos e calculando macros...</p>
-                  </div>
-                  <div className="flex gap-1.5">
-                    {["Detectando...", "Calculando macros...", "Finalizando..."].map((s, i) => (
+                <div className="space-y-4">
+                  {previewImage && (
+                    <div className="relative rounded-xl overflow-hidden aspect-video bg-black">
+                      <img src={previewImage} alt="Captura" className="w-full h-full object-cover opacity-80" />
                       <div
-                        key={i}
-                        className="h-1.5 w-12 rounded-full animate-pulse"
-                        style={{
-                          background: "var(--primary)",
-                          animationDelay: `${i * 0.4}s`,
-                          opacity: 0.4 + i * 0.2,
-                        }}
+                        className="absolute left-0 right-0 h-0.5 top-1/3 animate-pulse"
+                        style={{ background: "var(--primary)", boxShadow: "0 0 12px var(--primary)" }}
                       />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* DETECTED */}
-              {state === "detected" && (
-                <div className="space-y-4">
-                  <div
-                    className="flex items-center gap-3 p-4 rounded-xl"
-                    style={{ background: "var(--neon-dim)", border: "1px solid var(--primary)30" }}
-                  >
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 neon-glow"
-                      style={{ background: "var(--primary)" }}
-                    >
-                      <Check className="w-5 h-5" style={{ color: "var(--primary-foreground)" }} />
                     </div>
-                    <div>
-                      <p className="font-bold" style={{ fontFamily: "var(--font-space-grotesk)" }}>
-                        {detectedName ?? "Alimento"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">Selecione o alimento e informe a quantidade (g)</p>
-                    </div>
-                    {computed && (
-                      <div className="ml-auto text-right">
-                        <p className="font-bold text-lg neon-text" style={{ fontFamily: "var(--font-space-grotesk)" }}>
-                          {computed.kcal}
-                        </p>
-                        <p className="text-xs text-muted-foreground">kcal</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {matchesLoading ? (
-                    <p className="text-sm text-muted-foreground">Buscando alimentos…</p>
-                  ) : matchesError ? (
-                    <p className="text-sm text-destructive">{matchesError}</p>
-                  ) : matches.length === 0 ? (
-                    <div className="metric-card rounded-xl p-4">
-                      <p className="text-sm font-semibold">Nenhum alimento encontrado</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Use “Inserir manual” para cadastrar macros por 100g.
-                      </p>
-                      <div className="mt-3">
-                        <Button variant="outline" size="sm" onClick={() => setState("manual")} className="gap-2">
-                          <Pencil className="w-4 h-4" /> Inserir manual
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="space-y-2">
-                        <label className="text-xs text-muted-foreground block">Alimento</label>
-                        <select
-                          className="w-full h-10 rounded-md px-3 text-sm"
-                          style={{ background: "var(--secondary)", border: "1px solid var(--border)" }}
-                          value={String(selectedIdx)}
-                          onChange={(e) => setSelectedIdx(Number(e.target.value))}
-                        >
-                          {matches.map((m, idx) => (
-                            <option key={`${m.nome}-${idx}`} value={String(idx)}>
-                              {m.nome} — {m.kcal_100g} kcal/100g
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs text-muted-foreground block">Quantidade (g)</label>
-                        <Input
-                          type="number"
-                          placeholder="150"
-                          value={grams}
-                          onChange={(e) => setGrams(e.target.value)}
-                          style={{ background: "var(--secondary)" }}
-                        />
-                        <p className="text-[11px] text-muted-foreground">
-                          Dica: prato comum costuma variar entre 120g e 300g por item.
-                        </p>
-                      </div>
-
-                      {computed && (
-                        <div className="grid grid-cols-3 gap-2">
-                          <MacroBadge label="Proteínas" value={computed.p} unit="g" color="oklch(0.7 0.22 145)" />
-                          <MacroBadge label="Carboidratos" value={computed.c} unit="g" color="oklch(0.75 0.18 80)" />
-                          <MacroBadge label="Gorduras" value={computed.fat} unit="g" color="oklch(0.65 0.2 200)" />
-                        </div>
-                      )}
-                    </>
                   )}
-
-                  <div className="flex gap-3 pt-1">
-                    <Button
-                      className="flex-1 gap-2 font-semibold neon-glow"
-                      style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
-                      onClick={handleConfirm}
-                      disabled={!selectedFood || !computed}
-                    >
-                      <Plus className="w-4 h-4" />
-                      Adicionar à Refeição
-                    </Button>
-                    <Button variant="outline" className="flex-1 gap-2" onClick={handleClose}>
-                      <X className="w-4 h-4" />
-                      Cancelar
-                    </Button>
+                  <div className="flex flex-col items-center py-2 gap-4">
+                    <div className="relative w-16 h-16">
+                      <div
+                        className="w-16 h-16 rounded-full border-2 animate-spin"
+                        style={{ borderColor: "var(--border)", borderTopColor: "var(--primary)" }}
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Sparkles className="w-6 h-6 neon-text" />
+                      </div>
+                    </div>
+                    <div className="text-center space-y-1 w-full">
+                      <p className="font-semibold text-sm">IA Nutricional</p>
+                      <p className="text-xs text-muted-foreground animate-pulse">{SCAN_STEPS[scanStep]}</p>
+                    </div>
+                    <div className="w-full space-y-1.5">
+                      {SCAN_STEPS.map((step, i) => (
+                        <div
+                          key={step}
+                          className="flex items-center gap-2 text-[11px]"
+                          style={{ opacity: i <= scanStep ? 1 : 0.35 }}
+                        >
+                          <div
+                            className="w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{
+                              background: i <= scanStep ? "var(--primary)" : "var(--muted-foreground)",
+                            }}
+                          />
+                          <span className={i === scanStep ? "text-foreground font-medium" : "text-muted-foreground"}>
+                            {step}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* NOT FOUND */}
-              {state === "not_found" && (
+              {state === "detected" && analysis && (
+                <FoodScannerResults
+                  analysis={analysis}
+                  previewImage={previewImage}
+                  onAddItem={handleConfirmItem}
+                  onAddPlate={handleConfirmPlate}
+                  onRetry={() => {
+                    setAnalysis(null)
+                    setPreviewImage(null)
+                    startCamera("environment")
+                  }}
+                  onClose={handleClose}
+                />
+              )}
+
+
+              {(state === "not_found" || state === "poor_quality") && (
                 <div className="space-y-4">
+                  {previewImage && state === "poor_quality" && (
+                    <div className="relative rounded-xl overflow-hidden aspect-video bg-black opacity-60">
+                      <img src={previewImage} alt="Captura rejeitada" className="w-full h-full object-cover" />
+                    </div>
+                  )}
                   <div
                     className="rounded-xl flex flex-col items-center justify-center gap-3 py-8 text-center"
                     style={{ background: "var(--secondary)" }}
                   >
-                    <Camera className="w-10 h-10 text-muted-foreground" />
+                    {state === "poor_quality" ? (
+                      <ScanLine className="w-10 h-10 text-amber-400" />
+                    ) : (
+                      <Camera className="w-10 h-10 text-muted-foreground" />
+                    )}
                     <div>
-                      <p className="font-semibold text-sm">Alimento não identificado</p>
-                      <p className="text-xs text-muted-foreground mt-1">Tente capturar novamente ou adicione manualmente</p>
+                      <p className="font-semibold text-sm">
+                        {state === "poor_quality" ? "Imagem inadequada" : "Alimento não identificado"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+                        {qualityHint ??
+                          (state === "poor_quality"
+                            ? "Melhore a iluminação, enquadre o prato e segure firme antes de capturar."
+                            : "Tente capturar novamente ou adicione manualmente.")}
+                      </p>
                     </div>
                   </div>
                   <div className="flex gap-3">
-                    <Button variant="outline" className="flex-1 gap-2" onClick={() => startCamera("environment")}>
+                    <Button
+                      variant="outline"
+                      className="flex-1 gap-2"
+                      onClick={() => {
+                        setQualityHint(null)
+                        startCamera("environment")
+                      }}
+                    >
                       <RefreshCw className="w-4 h-4" />
                       Tentar novamente
                     </Button>
