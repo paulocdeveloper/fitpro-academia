@@ -20,6 +20,7 @@
     "render:deploy": "node ./scripts/render-deploy-supabase.mjs",
     "validate:prod": "node ./scripts/validate-production.mjs",
     "validate:seo": "node ./scripts/validate-seo.mjs",
+    "validate:lighthouse": "node ./scripts/lighthouse-seo.mjs",
     "validate:privacy": "node ./scripts/validate-privacy.mjs",
     "db:fix-saas": "node ./scripts/fix-saas.mjs",
     "db:render-setup": "node ./scripts/bootstrap-db.mjs && node ./scripts/seed-master-user.mjs",

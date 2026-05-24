@@ -49,7 +49,7 @@ export async function proxy(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
     url.searchParams.set("next", pathname)
-    return NextResponse.redirect(url)
+    return withNoIndex(NextResponse.redirect(url))
   }
 
   try {
@@ -59,7 +59,7 @@ export async function proxy(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
     url.searchParams.set("next", pathname)
-    const res = NextResponse.redirect(url)
+    const res = withNoIndex(NextResponse.redirect(url))
     res.cookies.set(AUTH_COOKIE, "", { path: "/", maxAge: 0 })
     return res
   }

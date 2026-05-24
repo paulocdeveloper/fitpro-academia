@@ -94,9 +94,11 @@ export function pageTitle(title: string) {
 }
 
 function socialImages() {
+  const absolute = `${siteUrl}${ogImagePath}`
   return [
     {
-      url: ogImagePath,
+      url: absolute,
+      secureUrl: absolute,
       width: 1200,
       height: 630,
       alt: ogImageAlt,
@@ -132,7 +134,12 @@ export function buildPageMetadata(input: PageMetaInput): Metadata {
       card: "summary_large_image",
       title: fullTitle,
       description,
-      images: [ogImagePath],
+      images: [{ url: `${siteUrl}${ogImagePath}`, alt: ogImageAlt, width: 1200, height: 630 }],
+    },
+    other: {
+      "og:image:width": "1200",
+      "og:image:height": "630",
+      "og:locale:alternate": "pt_BR",
     },
   }
 }
@@ -190,7 +197,7 @@ export const rootMetadata: Metadata = {
     card: "summary_large_image",
     title: `${siteName} — ${siteTagline}`,
     description: defaultDescription,
-    images: [ogImagePath],
+    images: [{ url: `${siteUrl}${ogImagePath}`, alt: ogImageAlt, width: 1200, height: 630 }],
   },
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],

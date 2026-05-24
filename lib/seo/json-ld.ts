@@ -1,5 +1,28 @@
 import { brandDescription, defaultDescription, siteName, siteUrl } from "@/lib/seo/site"
 
+type WebPageInput = {
+  path: string
+  title: string
+  description: string
+}
+
+/** Schema.org WebPage para páginas públicas indexáveis */
+export function buildWebPageJsonLd(input: WebPageInput) {
+  const url = `${siteUrl}${input.path}`
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "@id": `${url}#webpage`,
+    url,
+    name: input.title,
+    description: input.description,
+    isPartOf: { "@id": `${siteUrl}/#website` },
+    about: { "@id": `${siteUrl}/#software` },
+    inLanguage: "pt-BR",
+    publisher: { "@id": `${siteUrl}/#organization` },
+  }
+}
+
 /** Schema.org completo para Google Rich Results */
 export function buildJsonLdGraph() {
   const logoUrl = `${siteUrl}/icon.svg`

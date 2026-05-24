@@ -5,6 +5,7 @@ import { buildPageMetadata } from "@/lib/seo/site"
 export const metadata: Metadata = buildPageMetadata({
   title: "Início",
   path: "/login",
+  noIndex: true,
 })
 
 export default function Home() {

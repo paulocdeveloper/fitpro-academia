@@ -41,6 +41,8 @@ export default function RootLayout({
     <html lang="pt-BR" className="dark">
       <head>
         <link rel="preconnect" href={siteUrl} />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <JsonLdScript />
       </head>
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
