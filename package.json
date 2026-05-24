@@ -23,6 +23,7 @@
     "validate:prod": "node ./scripts/validate-production.mjs",
     "validate:nutrition": "node ./scripts/validate-nutrition-ai.mjs",
     "validate:nutrition:e2e": "node ./scripts/validate-nutrition-e2e.mjs",
+    "validate:scanner:mobile": "node ./scripts/validate-scanner-mobile.mjs",
     "validate:seo": "node ./scripts/validate-seo.mjs",
     "validate:lighthouse": "node ./scripts/lighthouse-seo.mjs",
     "validate:privacy": "node ./scripts/validate-privacy.mjs",

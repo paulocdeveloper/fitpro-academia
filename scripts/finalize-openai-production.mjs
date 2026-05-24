@@ -16,16 +16,19 @@ const API = "https://api.render.com/v1"
 const SERVICE_NAME = "fitpro-academia"
 const BASE = process.env.PROD_URL ?? "https://fitpro-academia.onrender.com"
 const ENV_PATH = resolve(process.cwd(), ".env")
+const ENV_LOCAL_PATH = resolve(process.cwd(), ".env.local")
 
 function loadDotEnv() {
   const out = {}
-  if (!existsSync(ENV_PATH)) return out
-  for (const line of readFileSync(ENV_PATH, "utf8").split(/\r?\n/)) {
-    const t = line.trim()
-    if (!t || t.startsWith("#")) continue
-    const eq = t.indexOf("=")
-    if (eq < 1) continue
-    out[t.slice(0, eq).trim()] = t.slice(eq + 1).trim()
+  for (const p of [ENV_PATH, ENV_LOCAL_PATH]) {
+    if (!existsSync(p)) continue
+    for (const line of readFileSync(p, "utf8").split(/\r?\n/)) {
+      const t = line.trim()
+      if (!t || t.startsWith("#")) continue
+      const eq = t.indexOf("=")
+      if (eq < 1) continue
+      out[t.slice(0, eq).trim()] = t.slice(eq + 1).trim()
+    }
   }
   return out
 }
@@ -136,36 +139,58 @@ const model = (process.env.OPENAI_VISION_MODEL || fileEnv.OPENAI_VISION_MODEL ||
 console.log("=== Finalizar IA Nutricional (OpenAI Vision) ===\n")
 
 if (!openaiKey) {
-  console.error("✗ OPENAI_API_KEY ausente.")
-  console.error("  Adicione ao .env:")
-  console.error("    OPENAI_API_KEY=sk-sua-chave")
+  console.error("✗ OPENAI_API_KEY ausente no disco.")
+  console.error(`  Arquivo: ${ENV_PATH}`)
+  console.error("  Chaves encontradas:", Object.keys(loadDotEnv()).join(", ") || "(nenhuma)")
+  console.error("\n  Se você editou o .env no Cursor, salve com Ctrl+S e rode novamente.")
+  console.error("  Linhas necessárias:")
+  console.error("    OPENAI_API_KEY=sk-...")
   console.error("    OPENAI_VISION_MODEL=gpt-4o")
+  console.error("    RENDER_API_KEY=rnd_...  (Render → Account → API Keys)")
   process.exit(1)
+}
+
+async function productionHasOpenAI() {
+  const health = await fetch(`${BASE}/api/health`).then((r) => r.json()).catch(() => null)
+  return Boolean(health?.env?.OPENAI_API_KEY_set)
 }
 
 if (!renderKey) {
-  console.error("✗ RENDER_API_KEY ausente.")
-  console.error("  Adicione ao .env ou ambiente:")
-  console.error("    RENDER_API_KEY=rnd_sua-chave")
-  console.error("  Crie em: https://dashboard.render.com/u/settings#api-keys")
-  process.exit(1)
+  if (await productionHasOpenAI()) {
+    console.log("~ RENDER_API_KEY ausente, mas Vision já está no Render — pulando sync\n")
+  } else {
+    console.error("✗ RENDER_API_KEY ausente e Vision não está no Render.")
+    console.error("  Opção A — adicione ao .env:")
+    console.error("    RENDER_API_KEY=rnd_...")
+    console.error("  Opção B — Render Dashboard → fitpro-academia → Environment:")
+    console.error("    OPENAI_API_KEY + OPENAI_VISION_MODEL=gpt-4o → Manual Deploy")
+    console.error("  Crie API key: https://dashboard.render.com/u/settings#api-keys")
+    process.exit(1)
+  }
+} else {
+  ensureEnvLocal(openaiKey, model)
+  console.log("\n1) Sincronizando Render…")
+  await syncRender(openaiKey, model, renderKey)
 }
 
-ensureEnvLocal(openaiKey, model)
-
-console.log("\n1) Sincronizando Render…")
-await syncRender(openaiKey, model, renderKey)
-
-console.log("\n2) Aguardando deploy…")
-const ready = await waitForVision()
-if (!ready) {
-  console.error("✗ Timeout aguardando OPENAI_API_KEY_set em /api/health")
-  process.exit(1)
+if (!(await productionHasOpenAI())) {
+  console.log("\n2) Aguardando deploy…")
+  const ready = await waitForVision()
+  if (!ready) {
+    console.error("✗ Timeout aguardando OPENAI_API_KEY_set em /api/health")
+    process.exit(1)
+  }
+} else {
+  console.log("\n✓ Vision já ativa em produção")
 }
 
 console.log("\n3) Validação E2E…")
 const ok = runValidateE2E()
 if (!ok) process.exit(1)
+
+console.log("\n4) Validação scanner mobile…")
+const mobile = spawnSync("node", ["scripts/validate-scanner-mobile.mjs"], { stdio: "inherit" })
+if (mobile.status !== 0) process.exit(1)
 
 console.log("\n=== IA Nutricional FINALIZADA ===")
 console.log(`Preview: ${BASE}/dietas`)
