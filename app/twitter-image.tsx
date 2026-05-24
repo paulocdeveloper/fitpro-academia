@@ -6,8 +6,7 @@ export const alt = `${siteName} — ${brandDescription}`
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
 
-/** Preview social: WhatsApp, Facebook, Instagram, LinkedIn */
-export default function OpenGraphImage() {
+export default function TwitterImage() {
   return new ImageResponse(
     (
       <div
@@ -36,39 +35,18 @@ export default function OpenGraphImage() {
               fontSize: 40,
               fontWeight: 800,
               color: "#052e16",
-              boxShadow: "0 8px 32px rgba(34, 197, 94, 0.35)",
             }}
           >
             F
           </div>
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <span style={{ fontSize: 42, fontWeight: 800, letterSpacing: -1 }}>{siteName}</span>
+            <span style={{ fontSize: 42, fontWeight: 800 }}>{siteName}</span>
             <span style={{ fontSize: 22, color: "#86efac", marginTop: 4 }}>{siteTagline}</span>
           </div>
         </div>
-
-        <p
-          style={{
-            fontSize: 36,
-            fontWeight: 600,
-            lineHeight: 1.35,
-            maxWidth: 1000,
-            margin: 0,
-            color: "#e2e8f0",
-          }}
-        >
+        <p style={{ fontSize: 36, fontWeight: 600, lineHeight: 1.35, maxWidth: 1000, margin: 0 }}>
           {brandDescription}
         </p>
-
-        <div style={{ display: "flex", gap: 16, fontSize: 20, color: "#94a3b8" }}>
-          <span>Alunos</span>
-          <span>•</span>
-          <span>Treinos</span>
-          <span>•</span>
-          <span>Pagamentos</span>
-          <span>•</span>
-          <span>Relatórios</span>
-        </div>
       </div>
     ),
     { ...size },

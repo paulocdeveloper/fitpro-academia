@@ -1,12 +1,9 @@
 import type { Metadata } from "next"
 import { Sidebar } from "@/components/layout/sidebar"
+import { privateRobots } from "@/lib/seo/site"
 
 export const metadata: Metadata = {
-  robots: {
-    index: false,
-    follow: false,
-    googleBot: { index: false, follow: false },
-  },
+  robots: privateRobots,
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

@@ -1,11 +1,11 @@
 import type { MetadataRoute } from "next"
-import { defaultDescription, siteName, siteUrl } from "@/lib/seo/site"
+import { brandDescription, siteName, siteUrl } from "@/lib/seo/site"
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: siteName,
     short_name: "FitPro",
-    description: defaultDescription,
+    description: brandDescription,
     start_url: "/login",
     scope: "/",
     display: "standalone",
@@ -14,7 +14,7 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#0a0a12",
     lang: "pt-BR",
     dir: "ltr",
-    categories: ["business", "productivity", "fitness"],
+    categories: ["business", "productivity", "fitness", "health"],
     icons: [
       {
         src: "/icon.svg",
@@ -23,9 +23,9 @@ export default function manifest(): MetadataRoute.Manifest {
         purpose: "any",
       },
       {
-        src: "/icon.svg",
-        sizes: "any",
-        type: "image/svg+xml",
+        src: "/apple-icon",
+        sizes: "180x180",
+        type: "image/png",
         purpose: "maskable",
       },
     ],

@@ -20,6 +20,11 @@ function needsPageAuth(pathname: string) {
   return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 }
 
+function withNoIndex(response: NextResponse) {
+  response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive")
+  return response
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
@@ -32,7 +37,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname.startsWith("/api/")) {
-    return NextResponse.next()
+    return withNoIndex(NextResponse.next())
   }
 
   if (!needsPageAuth(pathname)) {
@@ -49,7 +54,7 @@ export async function proxy(request: NextRequest) {
 
   try {
     await verifyAccessToken(token)
-    return NextResponse.next()
+    return withNoIndex(NextResponse.next())
   } catch {
     const url = request.nextUrl.clone()
     url.pathname = "/login"

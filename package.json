@@ -19,6 +19,7 @@
     "audit:env": "node ./scripts/audit-env.mjs",
     "render:deploy": "node ./scripts/render-deploy-supabase.mjs",
     "validate:prod": "node ./scripts/validate-production.mjs",
+    "validate:seo": "node ./scripts/validate-seo.mjs",
     "db:fix-saas": "node ./scripts/fix-saas.mjs",
     "db:render-setup": "node ./scripts/bootstrap-db.mjs && node ./scripts/seed-master-user.mjs",
     "db:init": "npm run db:bootstrap && npm run db:seed-master",

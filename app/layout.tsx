@@ -2,20 +2,34 @@ import type { Metadata, Viewport } from "next"
 import { Inter, Space_Grotesk } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { Toaster } from "sonner"
-import { organizationJsonLd, rootMetadata } from "@/lib/seo/site"
+import { JsonLdScript } from "@/components/seo/json-ld"
+import { rootMetadata, siteUrl } from "@/lib/seo/site"
 import "./globals.css"
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" })
-const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space-grotesk", display: "swap" })
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+  preload: true,
+})
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-space-grotesk",
+  display: "swap",
+  preload: true,
+})
 
 export const metadata: Metadata = rootMetadata
 
 export const viewport: Viewport = {
-  themeColor: "#0a0a12",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a12" },
+    { media: "(prefers-color-scheme: light)", color: "#0a0a12" },
+  ],
   width: "device-width",
   initialScale: 1,
-  maximumScale: 5,
-  colorScheme: "dark" as const,
+  viewportFit: "cover",
+  colorScheme: "dark",
 }
 
 export default function RootLayout({
@@ -23,15 +37,11 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const jsonLd = organizationJsonLd()
-
   return (
     <html lang="pt-BR" className="dark">
       <head>
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
+        <link rel="preconnect" href={siteUrl} />
+        <JsonLdScript />
       </head>
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
         {children}
