@@ -5,23 +5,37 @@ const nextConfig = {
   },
   images: {
     unoptimized: true,
+    formats: ["image/avif", "image/webp"],
   },
+  poweredByHeader: false,
+  compress: true,
   async headers() {
     return [
       {
         source: "/:path*",
         headers: [
-          // Garante que a própria origem pode usar a câmera (evita bloqueio por policy em alguns ambientes).
           { key: "Permissions-Policy", value: "camera=(self), microphone=()" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
         ],
+      },
+      {
+        source: "/icon.svg",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        source: "/sitemap.xml",
+        headers: [{ key: "Cache-Control", value: "public, max-age=3600, s-maxage=3600" }],
+      },
+      {
+        source: "/robots.txt",
+        headers: [{ key: "Cache-Control", value: "public, max-age=3600, s-maxage=3600" }],
       },
     ]
   },
   async rewrites() {
-    return [
-      // Evita 404 quando o navegador pede /favicon.ico explicitamente.
-      { source: "/favicon.ico", destination: "/icon.svg" },
-    ]
+    return [{ source: "/favicon.ico", destination: "/icon.svg" }]
   },
 }
 
