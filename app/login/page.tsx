@@ -13,7 +13,7 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [email, setEmail] = useState("master@academia.com")
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -102,7 +102,7 @@ export default function LoginPage() {
               Entrar na conta
             </h1>
             <p className="text-muted-foreground">
-              Use o e-mail e a senha cadastrados em <code className="text-xs">usuarios</code>.
+              Acesse com o e-mail e a senha da sua conta FitPro Academia.
             </p>
           </div>
 
@@ -116,6 +116,7 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 autoComplete="username"
+                placeholder="seu@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="h-11 bg-secondary border-border/50 focus:border-primary/50"
@@ -172,9 +173,6 @@ export default function LoginPage() {
             </Link>
           </p>
 
-          <p className="text-xs text-muted-foreground text-center">
-            O JWT inclui <strong>academiaId</strong> (SaaS) e o papel (<strong>admin</strong>, <strong>personal</strong>, <strong>aluno</strong>) a partir de <code>usuarios.perfil</code>.
-          </p>
         </div>
       </div>
     </div>

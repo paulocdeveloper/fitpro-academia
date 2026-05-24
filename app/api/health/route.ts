@@ -32,9 +32,8 @@ export async function GET() {
     const ping = await query<{ ok: number; db: string; user: string }>(
       "SELECT 1 AS ok, current_database() AS db, current_user AS user",
     )
-    const master = await query<{ id: number; email: string; perfil: string }>(
-      `SELECT id, email, perfil::text AS perfil FROM usuarios WHERE lower(email) = ? LIMIT 1`,
-      ["master@academia.com"],
+    const master = await query<{ id: number; perfil: string }>(
+      `SELECT id, perfil::text AS perfil FROM usuarios WHERE perfil IN ('master', 'admin') ORDER BY id LIMIT 1`,
     )
     return NextResponse.json({
       ok: true,
@@ -45,7 +44,9 @@ export async function GET() {
       connection: info,
       databaseUrlMasked: maskDatabaseUrl(process.env.DATABASE_URL),
       ping: ping[0],
-      masterUser: master[0] ?? null,
+      masterUser: master[0]
+        ? { id: master[0].id, perfil: master[0].perfil, configured: true }
+        : null,
       env: {
         DATABASE_URL_set: Boolean(process.env.DATABASE_URL),
         NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL ?? null,

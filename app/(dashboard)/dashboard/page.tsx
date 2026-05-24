@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation"
 import { Navbar } from "@/components/layout/navbar"
 import { useAlunosCount } from "@/lib/hooks/use-alunos-count"
+import { useSessionUser } from "@/lib/hooks/use-session-user"
 import { MetricCard } from "@/components/dashboard/metric-card"
 import { Users, DollarSign, Dumbbell, UserPlus, Activity, CheckCircle2, Clock, AlertCircle } from "lucide-react"
 import {
@@ -78,10 +79,12 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 export default function DashboardPage() {
   const pathname = usePathname()
   const alunosCount = useAlunosCount(pathname)
+  const { user } = useSessionUser()
+  const welcome = user ? `Bem-vindo de volta, ${user.displayName}` : "Bem-vindo de volta"
 
   return (
     <div>
-      <Navbar title="Dashboard" subtitle="Bem-vindo de volta, Admin" />
+      <Navbar title="Dashboard" subtitle={welcome} />
 
       <div className="p-6 space-y-6">
         {/* Metrics */}

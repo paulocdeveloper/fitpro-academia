@@ -8,8 +8,9 @@ import { Building2, LogOut, Mail, Shield } from "lucide-react"
 
 export type ConfiguracoesUser = {
   id: number
-  email: string
-  role: string
+  displayName: string
+  emailMasked: string
+  roleLabel: string
   academiaId: number
 }
 
@@ -37,14 +38,21 @@ export function ConfiguracoesClient({ initialUser }: { initialUser: Configuracoe
             Conta
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">E-mail</p>
-            <p className="font-medium">{initialUser.email}</p>
+            <p className="text-xs text-muted-foreground">Nome</p>
+            <p className="font-medium">{initialUser.displayName}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">E-mail de acesso</p>
+            <p className="font-medium font-mono text-sm">{initialUser.emailMasked}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              O endereço completo não é exibido em menus públicos por segurança.
+            </p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Função</p>
             <p className="font-medium flex items-center gap-2">
               <Shield className="w-4 h-4 text-muted-foreground" />
-              {initialUser.role}
+              {initialUser.roleLabel}
             </p>
           </div>
         </div>

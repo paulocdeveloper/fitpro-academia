@@ -1,6 +1,8 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { verifyAccessToken } from "@/lib/auth/jwt"
+import { maskEmail, roleLabel } from "@/lib/auth/user-display"
+import { query } from "@/lib/db"
 import { AUTH_COOKIE } from "@/lib/auth/session"
 import { ConfiguracoesClient } from "./configuracoes-client"
 
@@ -18,12 +20,19 @@ export default async function ConfiguracoesPage() {
     redirect("/login?next=/configuracoes")
   }
 
+  const rows = await query<{ nome: string | null }>(
+    `SELECT nome FROM usuarios WHERE id = ? LIMIT 1`,
+    [session.userId],
+  )
+  const displayName = rows[0]?.nome?.trim() || roleLabel(session.role)
+
   return (
     <ConfiguracoesClient
       initialUser={{
         id: session.userId,
-        email: session.email,
-        role: session.role,
+        displayName,
+        emailMasked: maskEmail(session.email),
+        roleLabel: roleLabel(session.role),
         academiaId: session.academiaId,
       }}
     />

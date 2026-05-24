@@ -40,7 +40,13 @@ type ApiTreino = {
   aluno: string
 }
 
-type Me = { id: number; email: string; role: UserRole; academiaId?: number }
+type Me = {
+  id: number
+  role: UserRole
+  academiaId?: number
+  displayName?: string
+  roleLabel?: string
+}
 
 function TreinoCard({
   treino,
@@ -285,7 +291,7 @@ export default function TreinosPage() {
         title="Treinos"
         subtitle={
           me
-            ? `Academia #${me.academiaId ?? "?"} · ${me.email} (${me.role})`
+            ? `${me.displayName ?? "Conta"} · ${me.roleLabel ?? me.role}`
             : "Treinos"
         }
         action={
