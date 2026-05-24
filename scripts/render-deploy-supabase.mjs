@@ -7,12 +7,16 @@
  *   $env:RENDER_API_KEY="rnd_..."
  *   node scripts/render-deploy-supabase.mjs
  */
+import crypto from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 const API = "https://api.render.com/v1"
 const SERVICE_NAME = "fitpro-academia"
-const MYSQL_KEYS = ["DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_DATABASE", "MYSQL_URL", "MYSQL_HOST", "MYSQL_DATABASE", "MYSQL_PUBLIC_URL", "DB_DIALECT"]
+const MYSQL_KEYS = [
+  "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_DATABASE", "DB_NAME",
+  "MYSQL_URL", "MYSQL_HOST", "MYSQL_DATABASE", "MYSQL_PUBLIC_URL", "DB_DIALECT",
+]
 
 function loadDotEnv() {
   const p = resolve(process.cwd(), ".env")
@@ -77,9 +81,10 @@ async function listEnvVars(serviceId) {
 }
 
 async function setEnvVar(serviceId, key, value) {
+  if (!value?.trim()) throw new Error(`${key} vazio no .env`)
   await api(`/services/${serviceId}/env-vars/${encodeURIComponent(key)}`, {
     method: "PUT",
-    body: JSON.stringify({ envVarValue: value }),
+    body: JSON.stringify({ value }),
   })
 }
 
@@ -141,7 +146,12 @@ for (const [k, v] of Object.entries(required)) {
 }
 
 if (!before.some((v) => v.key === "JWT_SECRET")) {
-  console.log("  (JWT_SECRET: mantenha o existente no Render ou gere no painel)")
+  const jwt =
+    env.JWT_SECRET?.trim() ||
+    `fitpro-jwt-${crypto.randomUUID().replace(/-/g, "")}`
+  if (jwt.length < 32) throw new Error("JWT_SECRET precisa ter 32+ caracteres no .env")
+  await setEnvVar(service.id, "JWT_SECRET", jwt)
+  console.log("  OK: JWT_SECRET (criado — guarde no painel Render)")
 }
 
 console.log("\nA disparar deploy (clear build cache)…")
