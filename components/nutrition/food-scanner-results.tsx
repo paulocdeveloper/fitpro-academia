@@ -7,8 +7,15 @@ import type { ScannedFood } from "@/components/nutrition/food-scanner"
 
 const LEVEL_LABEL: Record<MacroLevel, string> = {
   baixa: "Baixa",
-  media: "Media",
+  media: "Média",
   alta: "Alta",
+}
+
+const QUALITY_LABEL: Record<MealAnalysisResult["qualidade_refeicao"], string> = {
+  excelente: "Excelente",
+  boa: "Boa",
+  regular: "Regular",
+  pobre: "Pobre",
 }
 
 const LEVEL_COLOR: Record<MacroLevel, string> = {
@@ -73,7 +80,8 @@ export function FoodScannerResults({
   onRetry: () => void
   onClose: () => void
 }) {
-  const { totais, niveis, items, confianca_geral, qualidade_refeicao, resumo, engine } = analysis
+  const { totais, niveis, items, confianca_geral, qualidade_refeicao, resumo, engine, model } = analysis
+  const engineLabel = engine === "openai" ? (model ?? "GPT-4o Vision") : "Análise visual"
 
   return (
     <div className="space-y-4 max-h-[min(70vh,520px)] overflow-y-auto pr-1">
@@ -81,10 +89,17 @@ export function FoodScannerResults({
         <div className="relative rounded-xl overflow-hidden aspect-video bg-black">
           <img src={previewImage} alt="Prato capturado" className="w-full h-full object-cover" />
           <div
-            className="absolute top-2 left-2 rounded-full px-2.5 py-1 text-[10px] font-semibold"
-            style={{ background: "oklch(0.05 0.005 260 / 0.8)", color: "var(--primary)" }}
+            className="absolute top-2 left-2 rounded-full px-2.5 py-1 text-[10px] font-semibold flex items-center gap-1"
+            style={{ background: "oklch(0.05 0.005 260 / 0.85)", color: "var(--primary)" }}
           >
-            IA {confianca_geral}% | {engine === "openai" ? "Vision" : "Visual"}
+            <Sparkles className="w-3 h-3" />
+            {confianca_geral}% · {engineLabel}
+          </div>
+          <div
+            className="absolute bottom-2 right-2 rounded-full px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide"
+            style={{ background: "oklch(0.05 0.005 260 / 0.75)", color: "var(--foreground)" }}
+          >
+            {items.length} item{items.length !== 1 ? "s" : ""}
           </div>
         </div>
       )}
@@ -104,8 +119,8 @@ export function FoodScannerResults({
             <p className="font-bold text-sm" style={{ fontFamily: "var(--font-space-grotesk)" }}>
               {resumo}
             </p>
-            <p className="text-xs text-muted-foreground mt-0.5 capitalize">
-              Qualidade da refeicao: {qualidade_refeicao}
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Qualidade nutricional: {QUALITY_LABEL[qualidade_refeicao]}
             </p>
           </div>
           <div className="text-right shrink-0">

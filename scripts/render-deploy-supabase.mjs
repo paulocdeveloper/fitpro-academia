@@ -154,6 +154,16 @@ if (!before.some((v) => v.key === "JWT_SECRET")) {
   console.log("  OK: JWT_SECRET (criado — guarde no painel Render)")
 }
 
+if (env.OPENAI_API_KEY?.trim()) {
+  await setEnvVar(service.id, "OPENAI_API_KEY", env.OPENAI_API_KEY.trim())
+  console.log("  OK: OPENAI_API_KEY")
+  const model = env.OPENAI_VISION_MODEL?.trim() || "gpt-4o"
+  await setEnvVar(service.id, "OPENAI_VISION_MODEL", model)
+  console.log("  OK: OPENAI_VISION_MODEL =", model)
+} else {
+  console.log("  ~ OPENAI_API_KEY ausente no .env — Vision não será configurada")
+}
+
 console.log("\nA disparar deploy (clear build cache)…")
 const deploy = await triggerDeploy(service.id)
 const deployId = deploy.id ?? deploy.deploy?.id ?? "(ver painel)"

@@ -48,7 +48,9 @@ export type MealAnalysisResult = {
     issues: string[]
   }
   engine: "openai" | "heuristic"
+  model?: string
   error?: string
 }
 
 export const MIN_CONFIDENCE = 55
+export const MIN_ITEM_CONFIDENCE = 50

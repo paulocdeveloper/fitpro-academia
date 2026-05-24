@@ -19,7 +19,7 @@ export function captureFrameQuality(
   ctx.drawImage(video, 0, 0, cw, ch)
   const imageData = ctx.getImageData(0, 0, cw, ch)
   const report = analyzeImageQuality(imageData.data, cw, ch)
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.88)
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.92)
   return { report, dataUrl, pixels: Array.from(imageData.data) }
 }
 

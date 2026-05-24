@@ -24,33 +24,25 @@ export type ScannedFood = {
 type ScannerState = "idle" | "camera" | "scanning" | "detected" | "not_found" | "poor_quality" | "manual"
 
 function buildCameraConstraints(facing: CameraFacing, allowFrontFallback: boolean): MediaStreamConstraints[] {
+  const videoAdvanced = {
+    facingMode: { ideal: facing },
+    width: { ideal: 1920, max: 1920 },
+    height: { ideal: 1080, max: 1080 },
+    // Autofocus contínuo (suportado em iPhone/Android modernos)
+    focusMode: { ideal: "continuous" },
+  } as MediaTrackConstraints
+
   const list: MediaStreamConstraints[] = [
-    {
-      audio: false,
-      video: {
-        facingMode: { exact: facing },
-        width: { ideal: 1920, max: 1920 },
-        height: { ideal: 1080, max: 1080 },
-      },
-    },
+    { audio: false, video: { ...videoAdvanced, facingMode: { exact: facing } } },
+    { audio: false, video: videoAdvanced },
     {
       audio: false,
       video: {
         facingMode: { ideal: facing },
-        width: { ideal: 1280, max: 1280 },
-        height: { ideal: 720, max: 720 },
-      },
+        focusMode: { ideal: "continuous" },
+      } as MediaTrackConstraints,
     },
-    {
-      audio: false,
-      video: {
-        facingMode: { ideal: facing },
-      },
-    },
-    {
-      audio: false,
-      video: { facingMode: facing },
-    },
+    { audio: false, video: { facingMode: facing } },
   ]
 
   if (allowFrontFallback && facing === "environment") {
@@ -90,6 +82,8 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
   const [manualGord100, setManualGord100] = useState("")
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [facingMode, setFacingMode] = useState<CameraFacing>("environment")
+  const [visionReady, setVisionReady] = useState<boolean | null>(null)
+  const [visionModel, setVisionModel] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -174,6 +168,10 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
 
     const attachStream = (stream: MediaStream) => {
       streamRef.current = stream
+      const track = stream.getVideoTracks()[0]
+      if (track) {
+        void track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {})
+      }
       let frames = 0
       const tryAttach = () => {
         const v = videoRef.current
@@ -373,6 +371,24 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
   useEffect(() => () => stopCamera(), [stopCamera])
 
   useEffect(() => {
+    if (state === "idle") return
+    let cancelled = false
+    void fetch("/api/nutrition/status", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return
+        setVisionReady(Boolean(data?.vision?.configured))
+        setVisionModel(typeof data?.vision?.model === "string" ? data.vision.model : null)
+      })
+      .catch(() => {
+        if (!cancelled) setVisionReady(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [state])
+
+  useEffect(() => {
     if (state !== "camera" || cameraError) return
     let raf = 0
     if (!sampleCanvasRef.current && typeof document !== "undefined") {
@@ -463,6 +479,23 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {visionReady !== null && (
+              <div
+                className="mx-5 -mt-2 mb-1 flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px]"
+                style={{
+                  background: visionReady ? "var(--neon-dim)" : "oklch(0.75 0.18 80 / 0.12)",
+                  border: `1px solid ${visionReady ? "var(--primary)40" : "oklch(0.75 0.18 80 / 0.35)"}`,
+                }}
+              >
+                <Sparkles className="w-3 h-3 shrink-0" style={{ color: visionReady ? "var(--primary)" : "oklch(0.75 0.18 80)" }} />
+                <span className="text-muted-foreground">
+                  {visionReady
+                    ? `GPT-4o Vision ativo${visionModel ? ` (${visionModel})` : ""} — reconhecimento real`
+                    : "Vision offline — configure OPENAI_API_KEY no servidor"}
+                </span>
+              </div>
+            )}
 
             {/* Corpo */}
             <div className="p-5 space-y-4">

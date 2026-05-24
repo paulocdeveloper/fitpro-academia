@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 import { getDbConnectionInfo } from "@/lib/db-config"
 import { mapDbConnectionError } from "@/lib/db-errors"
 import { query } from "@/lib/db"
+import { getOpenAIConfig } from "@/lib/nutrition/openai-config"
 
 function envFilesStatus() {
   const names = [".env", ".env.local", ".env.development", ".env.production"]
@@ -54,6 +55,8 @@ export async function GET() {
         DB_HOST: process.env.DB_HOST ?? null,
         DB_DATABASE: process.env.DB_DATABASE ?? null,
         MYSQL_URL: process.env.MYSQL_URL ?? null,
+        OPENAI_API_KEY_set: getOpenAIConfig().configured,
+        OPENAI_VISION_MODEL: getOpenAIConfig().model,
       },
     })
   } catch (e) {
