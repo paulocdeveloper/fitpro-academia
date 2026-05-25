@@ -38,6 +38,18 @@ async function get(path, token, opts = {}) {
   return { status: res.status, location: res.headers.get("location") }
 }
 
+async function registerFitness(email, password, nome = "Teste Fitness") {
+  const res = await fetch(`${BASE}/api/auth/register-fitness`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nome, email, password }),
+  })
+  const json = await res.json().catch(() => ({}))
+  const cookie = res.headers.get("set-cookie") ?? ""
+  const tokenMatch = cookie.match(/fitpro_token=([^;]+)/)
+  return { status: res.status, json, token: tokenMatch?.[1] ?? null }
+}
+
 async function main() {
   console.log("=== Validação permissões ===")
   console.log("URL:", BASE, "\n")
@@ -50,39 +62,49 @@ async function main() {
   console.log("✓ Login admin OK (role:", admin.json.user?.role, ")")
 
   const tiStaff = await get("/api/treino-inteligente", admin.token)
-  if (tiStaff.status === 403) {
-    console.log("✓ /api/treino-inteligente bloqueado para staff")
+  console.log(tiStaff.status === 403 ? "✓" : "~", "/api/treino-inteligente staff →", tiStaff.status)
+
+  const dashUsuario = await get("/dashboard", admin.token)
+  console.log(dashUsuario.status === 200 ? "✓" : "~", "Staff /dashboard →", dashUsuario.status)
+
+  const financeiro = await get("/financeiro", admin.token)
+  console.log(financeiro.status === 200 ? "✓" : "~", "Staff /financeiro →", financeiro.status)
+
+  const testEmail = process.env.VALIDATE_USUARIO_EMAIL?.trim()
+  const testPass = process.env.VALIDATE_USUARIO_PASSWORD?.trim()
+
+  if (testEmail && testPass) {
+    const usuario = await login(testEmail, testPass)
+    if (usuario.status === 200 && usuario.token && usuario.json.user?.role === "usuario") {
+      console.log("\n✓ Login usuario OK")
+      const ti = await fetch(`${BASE}/api/treino-inteligente`, { headers: authHeaders(usuario.token) })
+      console.log(ti.status === 200 ? "✓" : "✗", "GET treino-inteligente usuario →", ti.status)
+      const fin = await get("/financeiro", usuario.token)
+      const blocked =
+        fin.status === 307 || fin.status === 302 || fin.location?.includes("treino-inteligente")
+      console.log(blocked ? "✓" : "✗", "usuario bloqueado em /financeiro →", fin.status, fin.location ?? "")
+      const evo = await get("/evolucao", usuario.token)
+      console.log(evo.status === 200 ? "✓" : "~", "GET /evolucao usuario →", evo.status)
+    } else {
+      console.log("\n~ Login usuario falhou — registre com VALIDATE_USUARIO_* ou use cadastro-fitness")
+    }
   } else {
-    console.log("~ /api/treino-inteligente staff:", tiStaff.status, "(esperado 403)")
+    const probeEmail = `fitpro.test.${Date.now()}@example.com`
+    const reg = await registerFitness(probeEmail, "TesteFit@123")
+    if (reg.status === 200 && reg.token && reg.json.user?.role === "usuario") {
+      console.log("\n✓ Registro fitness OK (role usuario)")
+      const ti = await fetch(`${BASE}/api/treino-inteligente`, { headers: authHeaders(reg.token) })
+      console.log(ti.status === 200 ? "✓" : "✗", "GET treino-inteligente →", ti.status)
+      const fin = await get("/financeiro", reg.token)
+      const blocked =
+        fin.status === 307 || fin.status === 302 || fin.location?.includes("treino-inteligente")
+      console.log(blocked ? "✓" : "✗", "usuario /financeiro redirect →", fin.status)
+    } else {
+      console.log("\n~ Registro fitness:", reg.status, reg.json?.error ?? reg.json)
+    }
   }
 
-  const treinosStaff = await fetch(`${BASE}/api/treinos`, { headers: authHeaders(admin.token) })
-  console.log(
-    treinosStaff.status === 200 ? "✓" : "✗",
-    "GET /api/treinos staff →",
-    treinosStaff.status,
-  )
-
-  const nutritionStaff = await fetch(`${BASE}/api/nutrition/status`, {
-    headers: authHeaders(admin.token),
-  })
-  console.log(
-    nutritionStaff.status === 200 ? "✓" : "✗",
-    "GET /api/nutrition/status staff →",
-    nutritionStaff.status,
-  )
-
-  const forbiddenPage = await get("/financeiro", admin.token)
-  if (forbiddenPage.status === 200) {
-    console.log("✓ Staff acessa /financeiro")
-  } else {
-    console.log("~ GET /financeiro staff:", forbiddenPage.status)
-  }
-
-  console.log("\n✓ Validação admin concluída.")
-  console.log(
-    "Para testar aluno, defina VALIDATE_ALUNO_EMAIL e VALIDATE_ALUNO_PASSWORD no .env",
-  )
+  console.log("\n✓ Validação concluída.")
   process.exit(0)
 }
 

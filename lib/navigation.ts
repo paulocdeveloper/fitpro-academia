@@ -10,9 +10,11 @@ import {
   BarChart3,
   Package,
   Sparkles,
+  TrendingUp,
+  UserCircle,
 } from "lucide-react"
 import type { UserRole } from "@/lib/auth/roles"
-import { isStaffRole } from "@/lib/auth/roles"
+import { isAlunoRole, isStaffRole, isUsuarioRole } from "@/lib/auth/roles"
 
 export type NavItem = {
   href: string
@@ -70,11 +72,32 @@ const alunoNav: NavGroup[] = [
   },
 ]
 
+const usuarioNav: NavGroup[] = [
+  {
+    label: "Fitness",
+    items: [
+      { href: "/exercicios", label: "Exercícios", icon: BookOpen },
+      { href: "/dietas", label: "Nutrição", icon: Salad },
+      { href: "/treino-inteligente", label: "IA Treino", icon: Sparkles },
+      { href: "/evolucao", label: "Evolução", icon: TrendingUp },
+      { href: "/perfil", label: "Perfil", icon: UserCircle },
+    ],
+  },
+]
+
 export function navGroupsForRole(role: UserRole | null | undefined): NavGroup[] {
   if (!role || isStaffRole(role)) return staffNav
+  if (isUsuarioRole(role)) return usuarioNav
+  if (isAlunoRole(role)) return alunoNav
   return alunoNav
 }
 
 export function showConfiguracoesLink(role: UserRole | null | undefined): boolean {
   return isStaffRole(role ?? "aluno")
+}
+
+export function sidebarBrandSubtitle(role: UserRole | null | undefined): string {
+  if (isStaffRole(role ?? "aluno")) return "Academia Pro"
+  if (isUsuarioRole(role ?? "aluno")) return "Fitness"
+  return "Aluno"
 }

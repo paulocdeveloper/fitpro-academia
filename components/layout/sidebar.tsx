@@ -5,8 +5,13 @@ import { usePathname } from "next/navigation"
 import { useEffect } from "react"
 import { useAlunosCount } from "@/lib/hooks/use-alunos-count"
 import { useIsStaff } from "@/lib/hooks/use-is-staff"
-import { ALUNO_HOME, STAFF_HOME } from "@/lib/auth/route-access"
-import { navGroupsForRole, showConfiguracoesLink, type NavItem } from "@/lib/navigation"
+import { defaultHomeForRole } from "@/lib/auth/route-access"
+import {
+  navGroupsForRole,
+  showConfiguracoesLink,
+  sidebarBrandSubtitle,
+  type NavItem,
+} from "@/lib/navigation"
 import { Zap, Settings } from "lucide-react"
 import { SidebarUser } from "@/components/layout/sidebar-user"
 import {
@@ -68,8 +73,9 @@ export function AppSidebar() {
   const { user, loading, isStaff } = useIsStaff()
   const { isMobile, setOpenMobile } = useSidebar()
   const navItems = navGroupsForRole(user?.role)
-  const homeHref = isStaff ? STAFF_HOME : ALUNO_HOME
+  const homeHref = user ? defaultHomeForRole(user.role) : "/login"
   const showConfig = showConfiguracoesLink(user?.role)
+  const brandSub = sidebarBrandSubtitle(user?.role)
 
   useEffect(() => {
     if (isMobile) setOpenMobile(false)
@@ -92,7 +98,7 @@ export function AppSidebar() {
             >
               FitPro
             </span>
-            <p className="truncate text-xs text-muted-foreground">Academia Pro</p>
+            <p className="truncate text-xs text-muted-foreground">{brandSub}</p>
           </div>
         </Link>
       </SidebarHeader>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireAuth } from "@/lib/api/require-auth"
-import { isStaffRole } from "@/lib/auth/roles"
+import { isFitnessRole, isStaffRole } from "@/lib/auth/roles"
 import { insertRow, query } from "@/lib/db"
 import {
   alunoToPerfil,
@@ -83,6 +83,9 @@ export async function GET(req: Request) {
   if (isStaffRole(auth.session.role)) {
     return NextResponse.json({ error: "Use /treinos para gestão manual." }, { status: 403 })
   }
+  if (!isFitnessRole(auth.session.role)) {
+    return NextResponse.json({ error: "Acesso negado." }, { status: 403 })
+  }
 
   const aluno = await resolveAlunoForUser(auth.session)
   if (!aluno) {
@@ -118,6 +121,9 @@ export async function PUT(req: Request) {
   if (isStaffRole(auth.session.role)) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 })
   }
+  if (!isFitnessRole(auth.session.role)) {
+    return NextResponse.json({ error: "Acesso negado." }, { status: 403 })
+  }
 
   let body: Partial<PerfilTreinoInteligente>
   try {
@@ -145,6 +151,9 @@ export async function POST(req: Request) {
   const auth = await requireAuth(req)
   if (!auth.ok) return auth.response
   if (isStaffRole(auth.session.role)) {
+    return NextResponse.json({ error: "Acesso negado." }, { status: 403 })
+  }
+  if (!isFitnessRole(auth.session.role)) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 })
   }
 

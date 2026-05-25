@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { verifyAccessToken } from "@/lib/auth/jwt"
+import { isFitnessRole } from "@/lib/auth/roles"
 import {
-  ALUNO_HOME,
   defaultHomeForRole,
   redirectForForbiddenPath,
 } from "@/lib/auth/route-access"
@@ -20,6 +20,8 @@ const PROTECTED_PREFIXES = [
   "/exercicios",
   "/estoque",
   "/configuracoes",
+  "/evolucao",
+  "/perfil",
 ]
 
 function needsPageAuth(pathname: string) {
@@ -34,11 +36,19 @@ function withNoIndex(response: NextResponse) {
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  if (pathname.startsWith("/login") || pathname.startsWith("/cadastro")) {
+  if (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/cadastro") ||
+    pathname.startsWith("/cadastro-fitness")
+  ) {
     return NextResponse.next()
   }
 
-  if (pathname.startsWith("/api/auth/login") || pathname.startsWith("/api/auth/logout")) {
+  if (
+    pathname.startsWith("/api/auth/login") ||
+    pathname.startsWith("/api/auth/logout") ||
+    pathname.startsWith("/api/auth/register-fitness")
+  ) {
     return NextResponse.next()
   }
 
@@ -61,9 +71,9 @@ export async function proxy(request: NextRequest) {
   try {
     const session = await verifyAccessToken(token)
 
-    if (pathname === "/dashboard" && session.role === "aluno") {
+    if (pathname === "/dashboard" && isFitnessRole(session.role)) {
       const url = request.nextUrl.clone()
-      url.pathname = ALUNO_HOME
+      url.pathname = defaultHomeForRole(session.role)
       return withNoIndex(NextResponse.redirect(url))
     }
 
@@ -71,12 +81,6 @@ export async function proxy(request: NextRequest) {
     if (forbidden) {
       const url = request.nextUrl.clone()
       url.pathname = forbidden
-      return withNoIndex(NextResponse.redirect(url))
-    }
-
-    if (pathname === "/login" || pathname === "/cadastro") {
-      const url = request.nextUrl.clone()
-      url.pathname = defaultHomeForRole(session.role)
       return withNoIndex(NextResponse.redirect(url))
     }
 

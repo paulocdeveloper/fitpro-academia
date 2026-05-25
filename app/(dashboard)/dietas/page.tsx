@@ -163,7 +163,7 @@ function newRefeicaoId() {
 }
 
 export default function DietasPage() {
-  const { isStaff, user } = useIsStaff()
+  const { isStaff, isFitness, user } = useIsStaff()
   const [dietaData, setDietaData] = useState(dietasInicial)
   const [addRefeicaoOpen, setAddRefeicaoOpen] = useState(false)
   const [novaRefeicaoNome, setNovaRefeicaoNome] = useState("")
@@ -238,7 +238,7 @@ export default function DietasPage() {
     })
   }
 
-  if (!isStaff) {
+  if (isFitness && !isStaff) {
     return (
       <div>
         <Navbar

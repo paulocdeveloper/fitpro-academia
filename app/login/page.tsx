@@ -55,18 +55,29 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex" style={{ background: "var(--background)" }}>
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12" style={{ background: "var(--card)", borderRight: "1px solid var(--border)" }}>
+    <div className="min-h-screen flex flex-col lg:flex-row" style={{ background: "var(--background)" }}>
+      <div
+        className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12"
+        style={{ background: "var(--card)", borderRight: "1px solid var(--border)" }}
+      >
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center neon-glow" style={{ background: "var(--primary)" }}>
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center neon-glow"
+            style={{ background: "var(--primary)" }}
+          >
             <Zap className="w-5 h-5" style={{ color: "var(--primary-foreground)" }} />
           </div>
-          <span className="font-bold text-xl" style={{ fontFamily: "var(--font-space-grotesk)" }}>FitPro</span>
+          <span className="font-bold text-xl" style={{ fontFamily: "var(--font-space-grotesk)" }}>
+            FitPro
+          </span>
         </div>
 
         <div className="space-y-8">
           <div>
-            <h2 className="text-4xl font-bold leading-tight mb-4" style={{ fontFamily: "var(--font-space-grotesk)" }}>
+            <h2
+              className="text-4xl font-bold leading-tight mb-4"
+              style={{ fontFamily: "var(--font-space-grotesk)" }}
+            >
               Gerencie sua academia com
               <span className="block neon-text">inteligência e precisão.</span>
             </h2>
@@ -81,8 +92,15 @@ export default function LoginPage() {
               { icon: Dumbbell, title: "Treinos Personalizados", desc: "Monte treinos com exercícios e vídeos" },
               { icon: BarChart3, title: "Relatórios Financeiros", desc: "Controle de pagamentos e inadimplência" },
             ].map((feat, i) => (
-              <div key={i} className="flex items-start gap-4 p-4 rounded-xl" style={{ background: "var(--secondary)" }}>
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "var(--neon-dim)" }}>
+              <div
+                key={i}
+                className="flex items-start gap-4 p-4 rounded-xl"
+                style={{ background: "var(--secondary)" }}
+              >
+                <div
+                  className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: "var(--neon-dim)" }}
+                >
                   <feat.icon className="w-5 h-5 neon-text" />
                 </div>
                 <div>
@@ -94,35 +112,45 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="text-sm text-muted-foreground">
-          © 2026 FitPro. Todos os direitos reservados.
-        </p>
+        <p className="text-sm text-muted-foreground">© 2026 FitPro. Todos os direitos reservados.</p>
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-md space-y-8">
-          <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center neon-glow" style={{ background: "var(--primary)" }}>
+      <div className="flex-1 flex items-center justify-center px-4 py-8 sm:px-8 min-h-[100dvh]">
+        <div className="w-full max-w-md space-y-6 mx-auto">
+          <div className="flex items-center justify-center gap-3 lg:hidden">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center neon-glow"
+              style={{ background: "var(--primary)" }}
+            >
               <Zap className="w-5 h-5" style={{ color: "var(--primary-foreground)" }} />
             </div>
-            <span className="font-bold text-xl" style={{ fontFamily: "var(--font-space-grotesk)" }}>FitPro</span>
+            <span className="font-bold text-xl" style={{ fontFamily: "var(--font-space-grotesk)" }}>
+              FitPro
+            </span>
           </div>
 
-          <div>
-            <h1 className="text-3xl font-bold mb-2" style={{ fontFamily: "var(--font-space-grotesk)" }}>
+          <div className="text-center lg:text-left">
+            <h1
+              className="text-2xl sm:text-3xl font-bold mb-2"
+              style={{ fontFamily: "var(--font-space-grotesk)" }}
+            >
               Entrar na conta
             </h1>
-            <p className="text-muted-foreground">
-              Acesse com o e-mail e a senha da sua conta FitPro Academia.
+            <p className="text-sm sm:text-base text-muted-foreground">
+              Acesse com o e-mail e a senha da sua conta FitPro.
             </p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-5">
+          <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5">
             {error && (
-              <p className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">{error}</p>
+              <p className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+                {error}
+              </p>
             )}
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm font-medium">E-mail</Label>
+              <Label htmlFor="email" className="text-sm font-medium">
+                E-mail
+              </Label>
               <Input
                 id="email"
                 type="email"
@@ -137,8 +165,12 @@ export default function LoginPage() {
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="senha" className="text-sm font-medium">Senha</Label>
-                <Link href="#" className="text-xs neon-text hover:underline">Esqueci a senha</Link>
+                <Label htmlFor="senha" className="text-sm font-medium">
+                  Senha
+                </Label>
+                <Link href="#" className="text-xs neon-text hover:underline">
+                  Esqueci a senha
+                </Link>
               </div>
               <div className="relative">
                 <Input
@@ -177,13 +209,25 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <p className="text-sm text-center text-muted-foreground">
-            Nova academia no FitPro?{" "}
+          <div className="relative py-1">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border/60" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">Novo no FitPro?</span>
+            </div>
+          </div>
+
+          <Button variant="outline" className="w-full h-11 font-medium" asChild>
+            <Link href="/cadastro-fitness">Criar conta fitness</Link>
+          </Button>
+
+          <p className="text-xs sm:text-sm text-center text-muted-foreground pt-1">
+            Dono de academia?{" "}
             <Link href="/cadastro" className="neon-text hover:underline font-medium">
-              Criar conta e academia
+              Criar conta e academia (SaaS)
             </Link>
           </p>
-
         </div>
       </div>
     </div>

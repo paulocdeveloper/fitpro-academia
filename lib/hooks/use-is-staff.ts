@@ -1,6 +1,6 @@
 "use client"
 
-import { isStaffRole } from "@/lib/auth/roles"
+import { isFitnessRole, isStaffRole, isUsuarioRole } from "@/lib/auth/roles"
 import { useSessionUser } from "@/lib/hooks/use-session-user"
 
 export function useIsStaff() {
@@ -10,5 +10,7 @@ export function useIsStaff() {
     loading,
     isStaff: user ? isStaffRole(user.role) : false,
     isAluno: user ? user.role === "aluno" : false,
+    isUsuario: user ? isUsuarioRole(user.role) : false,
+    isFitness: user ? isFitnessRole(user.role) : false,
   }
 }

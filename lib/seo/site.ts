@@ -59,12 +59,21 @@ export const publicRoutes: {
     priority: 0.9,
     changeFrequency: "weekly",
   },
+  {
+    path: "/cadastro-fitness",
+    title: "Criar conta fitness",
+    description:
+      "Cadastre-se no app FitPro Fitness: treino inteligente com IA, nutrição, scanner de refeições e evolução corporal.",
+    priority: 0.85,
+    changeFrequency: "weekly",
+  },
 ]
 
 export const privatePathPrefixes = [
   "/dashboard",
   "/alunos",
   "/treinos",
+  "/treino-inteligente",
   "/exercicios",
   "/planos",
   "/dietas",
@@ -72,6 +81,8 @@ export const privatePathPrefixes = [
   "/financeiro",
   "/estoque",
   "/configuracoes",
+  "/evolucao",
+  "/perfil",
   "/api",
   "/_next",
 ]

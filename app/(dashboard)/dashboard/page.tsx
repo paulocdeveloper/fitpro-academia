@@ -5,7 +5,8 @@ import { usePathname, useRouter } from "next/navigation"
 import { Navbar } from "@/components/layout/navbar"
 import { useAlunosCount } from "@/lib/hooks/use-alunos-count"
 import { useIsStaff } from "@/lib/hooks/use-is-staff"
-import { ALUNO_HOME } from "@/lib/auth/route-access"
+import { defaultHomeForRole } from "@/lib/auth/route-access"
+import { isFitnessRole } from "@/lib/auth/roles"
 import { MetricCard } from "@/components/dashboard/metric-card"
 import { Users, DollarSign, Dumbbell, UserPlus, Activity, CheckCircle2, Clock, AlertCircle } from "lucide-react"
 import {
@@ -85,12 +86,12 @@ export default function DashboardPage() {
   const { user, loading, isStaff } = useIsStaff()
 
   useEffect(() => {
-    if (!loading && user && !isStaff) {
-      router.replace(ALUNO_HOME)
+    if (!loading && user && isFitnessRole(user.role)) {
+      router.replace(defaultHomeForRole(user.role))
     }
-  }, [loading, user, isStaff, router])
+  }, [loading, user, router])
 
-  if (!loading && user && !isStaff) {
+  if (!loading && user && isFitnessRole(user.role)) {
     return null
   }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import type { JwtPayloadUser } from "@/lib/auth/jwt"
-import { isStaffRole } from "@/lib/auth/roles"
+import { isFitnessRole, isStaffRole } from "@/lib/auth/roles"
 import { getSessionFromRequest } from "@/lib/auth/session"
 
 export type AuthSuccess = { ok: true; session: JwtPayloadUser }
@@ -24,6 +24,19 @@ export async function requireStaff(req: Request): Promise<AuthResult> {
   const auth = await requireAuth(req)
   if (!auth.ok) return auth
   if (!isStaffRole(auth.session.role)) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Acesso negado." }, { status: 403 }),
+    }
+  }
+  return auth
+}
+
+/** Exige login e perfil aluno ou usuario (área fitness). */
+export async function requireFitness(req: Request): Promise<AuthResult> {
+  const auth = await requireAuth(req)
+  if (!auth.ok) return auth
+  if (!isFitnessRole(auth.session.role)) {
     return {
       ok: false,
       response: NextResponse.json({ error: "Acesso negado." }, { status: 403 }),

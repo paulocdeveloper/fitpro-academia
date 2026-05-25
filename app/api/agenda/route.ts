@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireAuth, requireStaff } from "@/lib/api/require-auth"
-import { isStaffRole } from "@/lib/auth/roles"
+import { isFitnessRole, isStaffRole } from "@/lib/auth/roles"
 import { insertRow, query, tableExists } from "@/lib/db"
 import { resolveAlunoForUser } from "@/lib/treino-inteligente/aluno-record"
 
@@ -98,6 +98,7 @@ export async function GET(req: Request) {
     }
 
     const staff = isStaffRole(auth.session.role)
+    const fitness = isFitnessRole(auth.session.role)
     let rows: EventoRow[]
 
     if (staff) {
@@ -108,7 +109,7 @@ export async function GET(req: Request) {
          ORDER BY data_evento ASC, horario ASC`,
         [auth.session.academiaId, inicioISO, fimISO],
       )
-    } else {
+    } else if (fitness) {
       const aluno = await resolveAlunoForUser(auth.session)
       if (!aluno) {
         return NextResponse.json({ inicio: inicioISO, fim: fimISO, eventos: [] })
@@ -121,6 +122,8 @@ export async function GET(req: Request) {
          ORDER BY data_evento ASC, horario ASC`,
         [auth.session.academiaId, inicioISO, fimISO, aluno.id, aluno.nome],
       )
+    } else {
+      return NextResponse.json({ error: "Acesso negado." }, { status: 403 })
     }
 
     return NextResponse.json({

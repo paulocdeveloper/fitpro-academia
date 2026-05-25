@@ -39,7 +39,7 @@ async function main() {
     ok("robots.txt")
   } else fail("robots.txt")
 
-  for (const path of ["/login", "/cadastro"]) {
+  for (const path of ["/login", "/cadastro", "/cadastro-fitness"]) {
     const page = await fetchText(path)
     if (page.status !== 200) {
       fail(`${path} HTTP`, `status ${page.status}`)
@@ -110,6 +110,7 @@ async function main() {
   console.log("OG preview:  ", `${BASE}/opengraph-image`)
   console.log("Login:       ", `${BASE}/login`)
   console.log("Cadastro:    ", `${BASE}/cadastro`)
+  console.log("Fitness:     ", `${BASE}/cadastro-fitness`)
   console.log("\nSearch Console: adicione propriedade → verificação HTML → GOOGLE_SITE_VERIFICATION no Render")
   console.log("Depois envie sitemap:", `${BASE}/sitemap.xml`)
 

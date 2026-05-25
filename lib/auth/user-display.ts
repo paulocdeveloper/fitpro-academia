@@ -9,6 +9,8 @@ export function roleLabel(role: UserRole | string): string {
       return "Personal trainer"
     case "aluno":
       return "Aluno"
+    case "usuario":
+      return "Fitness"
     default:
       return "Usuário"
   }
