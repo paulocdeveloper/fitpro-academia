@@ -9,7 +9,7 @@
 
 -- Tipos ENUM
 DO $$ BEGIN
-  CREATE TYPE perfil_usuario AS ENUM ('master', 'admin', 'personal', 'aluno');
+  CREATE TYPE perfil_usuario AS ENUM ('master', 'admin', 'personal', 'aluno', 'usuario');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 

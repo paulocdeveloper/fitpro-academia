@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs"
 import { insertRow } from "@/lib/db"
 import { dbBool } from "@/lib/db-bool"
 import { isDuplicateEntry } from "@/lib/db-errors"
+import { ensureUsuarioPerfilInDb } from "@/lib/auth/ensure-usuario-perfil"
 import { ensureFitnessAcademiaId } from "@/lib/auth/resolve-academia"
 import { signAccessToken } from "@/lib/auth/jwt"
 import { perfilToRole } from "@/lib/auth/roles"
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Senha deve ter pelo menos 6 caracteres." }, { status: 400 })
     }
 
+    await ensureUsuarioPerfilInDb()
     const academiaId = await ensureFitnessAcademiaId()
     const hash = await bcrypt.hash(password, 10)
 
