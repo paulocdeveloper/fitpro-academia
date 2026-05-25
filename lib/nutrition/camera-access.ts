@@ -2,9 +2,13 @@ export type CameraFacing = "environment" | "user"
 
 export type CameraPermissionState = "unsupported" | "insecure" | "prompt" | "granted" | "denied" | "unknown"
 
-export function isPermissionDeniedError(e: unknown): boolean {
-  const name = (e as { name?: string })?.name ?? ""
+/** Só NotAllowedError real — nunca inferir por kind ou Permissions API. */
+export function isNotAllowedErrorName(name: string | undefined): boolean {
   return name === "NotAllowedError" || name === "PermissionDeniedError"
+}
+
+export function isPermissionDeniedError(e: unknown): boolean {
+  return isNotAllowedErrorName((e as { name?: string })?.name)
 }
 
 export type CameraAccessErrorKind =
@@ -29,23 +33,21 @@ export type CameraAccessFailure = {
 const GET_USER_MEDIA_TIMEOUT_MS = 20_000
 const RETRY_ROUNDS = 2
 const RETRY_DELAY_MS = 400
+const PLAY_RETRY_ATTEMPTS = 3
+const TRACK_LIVE_WAIT_MS = 2_000
 
 export function logCamera(step: string, data?: Record<string, unknown>) {
   if (typeof console === "undefined") return
-  console.info(`[camera:${step}]`, data ?? {})
+  console.info(`[camera] ${step}`, data ?? {})
 }
 
-/** Log completo do erro DOM (visível no console do Brave/Chrome). */
 export function logCameraError(step: string, e: unknown, extra?: Record<string, unknown>) {
   const err = e as DOMException & { constraint?: string }
-  const payload = {
-    name: err?.name ?? "unknown",
-    message: err?.message ?? String(e),
-    constraint: err?.constraint,
-    ...extra,
-  }
-  console.error(`[camera:${step}]`, payload)
-  logCamera(step, payload)
+  const name = err?.name ?? "unknown"
+  const message = err?.message ?? String(e)
+  console.error(`[camera] ${step}`, { name, message, constraint: err?.constraint, ...extra })
+  logCamera("error-name", { name, step })
+  logCamera("error-message", { message, step })
 }
 
 function isSecureCameraContext(): boolean {
@@ -61,9 +63,25 @@ export function isGetUserMediaSupported(): boolean {
 
 export function isStreamLive(stream: MediaStream | null | undefined): boolean {
   if (!stream) return false
-  const tracks = stream.getTracks()
-  const video = tracks.find((t) => t.kind === "video") ?? stream.getVideoTracks()[0]
+  const video = stream.getVideoTracks()[0]
   return Boolean(video && video.readyState === "live" && video.enabled)
+}
+
+export function logTrackState(stream: MediaStream | null | undefined, label: string) {
+  if (!stream) {
+    logCamera("track-state", { label, stream: null })
+    return
+  }
+  logCamera("track-state", {
+    label,
+    tracks: stream.getTracks().map((t) => ({
+      kind: t.kind,
+      label: t.label,
+      readyState: t.readyState,
+      enabled: t.enabled,
+      muted: t.muted,
+    })),
+  })
 }
 
 export function stopMediaStream(stream: MediaStream | null | undefined): void {
@@ -74,7 +92,14 @@ export function stopMediaStream(stream: MediaStream | null | undefined): void {
   }
 }
 
-export async function releaseCameraHardware(stream?: MediaStream | null): Promise<void> {
+export async function releaseCameraHardware(
+  stream?: MediaStream | null,
+  video?: HTMLVideoElement | null,
+): Promise<void> {
+  if (video) {
+    video.pause()
+    video.srcObject = null
+  }
   stopMediaStream(stream ?? null)
   await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
 }
@@ -88,12 +113,12 @@ export async function queryCameraPermission(): Promise<CameraPermissionState> {
 
   try {
     const result = await perms.query({ name: "camera" as PermissionName })
-    logCamera("permission-query", { state: result.state })
+    logCamera("permission-state", { state: result.state, note: "hint-only-not-ui-denied" })
     if (result.state === "granted") return "granted"
     if (result.state === "denied") return "denied"
     return "prompt"
   } catch (e) {
-    logCameraError("permission-query-error", e)
+    logCameraError("permission-state-error", e)
     return "unknown"
   }
 }
@@ -103,35 +128,28 @@ async function warmUpDevices(): Promise<MediaDeviceInfo[]> {
     const devices = await navigator.mediaDevices.enumerateDevices()
     const cameras = devices.filter((d) => d.kind === "videoinput")
     logCamera("enumerate-devices", {
-      total: devices.length,
-      cameras: cameras.map((c) => ({ id: c.deviceId?.slice(0, 12), label: c.label })),
+      cameras: cameras.length,
+      ids: cameras.map((c) => c.deviceId?.slice(0, 8)),
     })
     return cameras
   } catch (e) {
-    logCameraError("enumerate-devices-error", e)
+    logCameraError("enumerate-devices", e)
     return []
   }
 }
 
-function classifyMediaError(e: unknown): CameraAccessFailure {
+function failureFromDomError(e: unknown): CameraAccessFailure {
   const err = e as DOMException & { constraint?: string }
   const name = err?.name ?? ""
   const msg = err?.message ?? ""
 
-  if (isPermissionDeniedError(e)) {
+  if (isNotAllowedErrorName(name)) {
     return {
       kind: "denied",
       rawName: name,
       rawMessage: msg,
-      message: "Acesso à câmera recusado. Verifique o ícone de câmera na barra de endereço e tente de novo.",
-    }
-  }
-  if (name === "SecurityError") {
-    return {
-      kind: "gesture",
-      rawName: name,
-      rawMessage: msg,
-      message: "Toque em “Permitir câmera” para autorizar o acesso.",
+      message:
+        "Permissão da câmera negada. Se já permitiu, verifique o ícone na barra ou desative bloqueadores (ex.: Brave Shields).",
     }
   }
   if (name === "NotFoundError" || name === "DevicesNotFoundError") {
@@ -139,7 +157,7 @@ function classifyMediaError(e: unknown): CameraAccessFailure {
       kind: "not_found",
       rawName: name,
       rawMessage: msg,
-      message: "Nenhuma câmera encontrada. Conecte uma webcam ou use o celular.",
+      message: "Nenhuma câmera encontrada neste dispositivo.",
     }
   }
   if (name === "NotReadableError" || name === "TrackStartError") {
@@ -147,15 +165,7 @@ function classifyMediaError(e: unknown): CameraAccessFailure {
       kind: "busy",
       rawName: name,
       rawMessage: msg,
-      message: "Câmera ocupada por outro app. Feche outros programas e tente novamente.",
-    }
-  }
-  if (name === "AbortError") {
-    return {
-      kind: "busy",
-      rawName: name,
-      rawMessage: msg,
-      message: "Abertura da câmera cancelada. Tente novamente.",
+      message: "Câmera ocupada por outro aplicativo",
     }
   }
   if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
@@ -163,37 +173,58 @@ function classifyMediaError(e: unknown): CameraAccessFailure {
       kind: "constraint",
       rawName: name,
       rawMessage: msg,
-      message: `Configuração incompatível${err.constraint ? ` (${err.constraint})` : ""}. Tentando outra…`,
+      message: "Configuração de câmera incompatível",
+    }
+  }
+  if (name === "AbortError") {
+    return {
+      kind: "busy",
+      rawName: name,
+      rawMessage: msg,
+      message: "Falha ao iniciar câmera",
+    }
+  }
+  if (name === "SecurityError") {
+    return {
+      kind: "gesture",
+      rawName: name,
+      rawMessage: msg,
+      message: "Toque em “Permitir câmera” para iniciar o acesso.",
     }
   }
 
   return {
     kind: "unknown",
-    rawName: name,
-    rawMessage: msg,
-    message: msg ? `Falha na câmera: ${msg}` : "Falha ao abrir a câmera.",
+    rawName: name || undefined,
+    rawMessage: msg || undefined,
+    message: msg || name || "Erro desconhecido ao abrir a câmera",
   }
 }
 
-/** Sem facingMode — máxima compatibilidade Brave/Safari/Chrome. */
+/** Ordem obrigatória: video true → ideal → environment → user */
 function buildConstraintAttempts(): { label: string; constraints: MediaStreamConstraints }[] {
   return [
-    { label: "video-true", constraints: { video: true } },
+    { label: "1-video-true", constraints: { video: true, audio: false } },
     {
-      label: "ideal-hd",
-      constraints: { video: { width: { ideal: 1280 }, height: { ideal: 720 } } },
-    },
-    {
-      label: "ideal-sd",
-      constraints: { video: { width: { ideal: 640 }, height: { ideal: 480 } } },
-    },
-    {
-      label: "min-vga",
+      label: "2-ideal-hd",
       constraints: {
-        video: {
-          width: { min: 320, ideal: 640 },
-          height: { min: 240, ideal: 480 },
-        },
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      },
+    },
+    {
+      label: "3-facing-environment",
+      constraints: { video: { facingMode: { ideal: "environment" } }, audio: false },
+    },
+    {
+      label: "4-facing-user",
+      constraints: { video: { facingMode: { ideal: "user" } }, audio: false },
+    },
+    {
+      label: "5-ideal-sd",
+      constraints: {
+        video: { width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
       },
     },
   ]
@@ -205,7 +236,8 @@ function getUserMediaWithTimeout(constraints: MediaStreamConstraints): Promise<M
     const timer = window.setTimeout(() => {
       reject(new DOMException("Timeout ao abrir câmera", "AbortError"))
     }, GET_USER_MEDIA_TIMEOUT_MS)
-    md.getUserMedia(constraints)
+    md
+      .getUserMedia(constraints)
       .then((stream) => {
         window.clearTimeout(timer)
         resolve(stream)
@@ -217,16 +249,23 @@ function getUserMediaWithTimeout(constraints: MediaStreamConstraints): Promise<M
   })
 }
 
-/** facingMode só via applyConstraints — nunca bloqueia o stream. */
-async function tryPreferFacing(stream: MediaStream, facing: CameraFacing): Promise<void> {
+async function waitForVideoTrackLive(stream: MediaStream, maxMs = TRACK_LIVE_WAIT_MS): Promise<boolean> {
   const track = stream.getVideoTracks()[0]
-  if (!track) return
-  try {
-    await track.applyConstraints({ facingMode: { ideal: facing } })
-    logCamera("facing-applied", { facing, label: track.label })
-  } catch (e) {
-    logCameraError("facing-skip", e, { facing, note: "stream mantido sem facing" })
-  }
+  if (!track) return false
+  if (track.readyState === "live") return true
+
+  return new Promise((resolve) => {
+    const deadline = Date.now() + maxMs
+    const timer = window.setInterval(() => {
+      if (track.readyState === "live") {
+        window.clearInterval(timer)
+        resolve(true)
+      } else if (Date.now() >= deadline) {
+        window.clearInterval(timer)
+        resolve(false)
+      }
+    }, 50)
+  })
 }
 
 async function tryOpenStream(
@@ -234,7 +273,7 @@ async function tryOpenStream(
   constraints: MediaStreamConstraints,
 ): Promise<{ stream: MediaStream } | { failure: CameraAccessFailure }> {
   try {
-    logCamera("getUserMedia-attempt", { label, constraints: JSON.stringify(constraints) })
+    logCamera("getUserMedia-attempt", { label })
     const stream = await getUserMediaWithTimeout(constraints)
     const tracks = stream.getTracks()
     logCamera("stream-created", {
@@ -242,24 +281,39 @@ async function tryOpenStream(
       trackCount: tracks.length,
       tracks: tracks.map((t) => ({
         kind: t.kind,
-        label: t.label,
         readyState: t.readyState,
         enabled: t.enabled,
         muted: t.muted,
       })),
     })
+    logTrackState(stream, label)
     return { stream }
   } catch (e) {
-    const failure = classifyMediaError(e)
+    const failure = failureFromDomError(e)
     logCameraError("getUserMedia-error", e, { label, kind: failure.kind })
     return { failure }
   }
 }
 
-/**
- * Abre câmera com fallbacks + retry + deviceId.
- * Nunca usa facingMode no getUserMedia (apenas ideal depois).
- */
+async function acceptStream(stream: MediaStream, facing: CameraFacing): Promise<MediaStream | null> {
+  const live = await waitForVideoTrackLive(stream)
+  if (!live) {
+    logCamera("stream-not-live-yet", { facing })
+    stopMediaStream(stream)
+    return null
+  }
+  const track = stream.getVideoTracks()[0]
+  if (track) {
+    try {
+      await track.applyConstraints({ facingMode: { ideal: facing } })
+      logCamera("facing-ideal-applied", { facing })
+    } catch (e) {
+      logCameraError("facing-ideal-skip", e, { facing, note: "stream mantido" })
+    }
+  }
+  return stream
+}
+
 export async function requestCameraStream(
   facing: CameraFacing = "environment",
 ): Promise<MediaStream> {
@@ -270,20 +324,13 @@ export async function requestCameraStream(
     throw { kind: "insecure", message: "Câmera requer HTTPS (Render) ou localhost." } satisfies CameraAccessFailure
   }
 
-  logCamera("getUserMedia-start", { facing, ua: typeof navigator !== "undefined" ? navigator.userAgent : "" })
+  logCamera("getUserMedia-start", { facing })
   await warmUpDevices()
 
   const attempts = buildConstraintAttempts()
-  let lastFailure: CameraAccessFailure = { kind: "unknown", message: "Não foi possível iniciar a câmera." }
-  let sawDenied = false
-  let sawOther = false
-
-  const handleResult = (result: { stream: MediaStream } | { failure: CameraAccessFailure }) => {
-    if ("stream" in result) return result.stream
-    lastFailure = result.failure
-    if (result.failure.kind === "denied") sawDenied = true
-    else sawOther = true
-    return null
+  let lastFailure: CameraAccessFailure = {
+    kind: "unknown",
+    message: "Não foi possível iniciar a câmera.",
   }
 
   for (let round = 0; round < RETRY_ROUNDS; round++) {
@@ -293,35 +340,41 @@ export async function requestCameraStream(
     }
 
     for (const { label, constraints } of attempts) {
-      const stream = handleResult(await tryOpenStream(label, constraints))
-      if (stream && isStreamLive(stream)) {
-        await tryPreferFacing(stream, facing)
-        return stream
+      const result = await tryOpenStream(label, constraints)
+      if ("failure" in result) {
+        lastFailure = result.failure
+        continue
+      }
+      const accepted = await acceptStream(result.stream, facing)
+      if (accepted) {
+        logCamera("active-stream", { label, facing })
+        return accepted
+      }
+      lastFailure = {
+        kind: "stream_inactive",
+        message: "Stream sem vídeo ativo após abertura.",
+        rawName: "StreamInactive",
       }
     }
 
     const cameras = await warmUpDevices()
     for (const cam of cameras) {
       if (!cam.deviceId) continue
-      const stream = handleResult(
-        await tryOpenStream(`device-${cam.deviceId.slice(0, 8)}`, {
-          video: { deviceId: { ideal: cam.deviceId } },
-        }),
-      )
-      if (stream && isStreamLive(stream)) {
-        await tryPreferFacing(stream, facing)
-        return stream
+      const devLabel = `device-${cam.deviceId.slice(0, 8)}`
+      const result = await tryOpenStream(devLabel, {
+        video: { deviceId: { ideal: cam.deviceId } },
+        audio: false,
+      })
+      if ("failure" in result) {
+        lastFailure = result.failure
+        continue
+      }
+      const accepted = await acceptStream(result.stream, facing)
+      if (accepted) {
+        logCamera("active-stream", { label: devLabel, facing })
+        return accepted
       }
     }
-  }
-
-  if (sawDenied && !sawOther) {
-    throw {
-      kind: "denied",
-      rawName: lastFailure.rawName,
-      rawMessage: lastFailure.rawMessage,
-      message: lastFailure.message,
-    } satisfies CameraAccessFailure
   }
 
   throw {
@@ -329,7 +382,7 @@ export async function requestCameraStream(
     message: lastFailure.rawMessage
       ? `${lastFailure.message} (${lastFailure.rawName}: ${lastFailure.rawMessage})`
       : lastFailure.message,
-  }
+  } satisfies CameraAccessFailure
 }
 
 export async function applyContinuousFocus(stream: MediaStream): Promise<void> {
@@ -344,27 +397,85 @@ export async function applyContinuousFocus(stream: MediaStream): Promise<void> {
   }
 }
 
-export type AttachVideoResult =
-  | { ok: true }
-  | { ok: false; failure: CameraAccessFailure }
+export type AttachVideoResult = { ok: true } | { ok: false; failure: CameraAccessFailure }
+
+async function waitVideoDimensions(video: HTMLVideoElement, timeoutMs: number): Promise<boolean> {
+  if (video.videoWidth > 0 && video.videoHeight > 0) return true
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      cleanup()
+      resolve(video.videoWidth > 0 && video.videoHeight > 0)
+    }, timeoutMs)
+    const onDim = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        cleanup()
+        resolve(true)
+      }
+    }
+    const cleanup = () => {
+      window.clearTimeout(timer)
+      video.removeEventListener("loadeddata", onDim)
+      video.removeEventListener("resize", onDim)
+    }
+    video.addEventListener("loadeddata", onDim)
+    video.addEventListener("resize", onDim)
+  })
+}
+
+async function playVideoWithRetry(video: HTMLVideoElement): Promise<void> {
+  let lastError: unknown
+  for (let i = 0; i < PLAY_RETRY_ATTEMPTS; i++) {
+    try {
+      await video.play()
+      logCamera("play-ok", {
+        attempt: i + 1,
+        paused: video.paused,
+        readyState: video.readyState,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+      })
+      return
+    } catch (e) {
+      lastError = e
+      logCameraError("play-failed", e, { attempt: i + 1 })
+      if (i < PLAY_RETRY_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, 200 * (i + 1)))
+      }
+    }
+  }
+  throw lastError
+}
 
 export async function attachStreamToVideo(
   stream: MediaStream,
   video: HTMLVideoElement,
-  timeoutMs = 10_000,
+  timeoutMs = 12_000,
 ): Promise<AttachVideoResult> {
-  const tracks = stream.getTracks()
-  logCamera("attach-start", {
-    tracks: tracks.map((t) => ({ kind: t.kind, readyState: t.readyState })),
-  })
+  logTrackState(stream, "attach")
 
-  if (!isStreamLive(stream)) {
+  const videoTrack = stream.getVideoTracks()[0]
+  if (!videoTrack) {
     return {
       ok: false,
       failure: {
         kind: "stream_inactive",
-        message: "Stream inativo. Toque em “Permitir câmera” novamente.",
+        rawName: "NoVideoTrack",
+        message: "Nenhuma faixa de vídeo no stream.",
       },
+    }
+  }
+
+  if (videoTrack.readyState !== "live") {
+    const ok = await waitForVideoTrackLive(stream, timeoutMs)
+    if (!ok) {
+      return {
+        ok: false,
+        failure: {
+          kind: "stream_inactive",
+          rawName: "TrackNotLive",
+          message: "Stream inativo antes do preview.",
+        },
+      }
     }
   }
 
@@ -377,23 +488,32 @@ export async function attachStreamToVideo(
   video.setAttribute("playsinline", "true")
   video.setAttribute("webkit-playsinline", "true")
 
-  await new Promise<void>((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new Error("metadata-timeout")), timeoutMs)
-    const onReady = () => {
-      window.clearTimeout(timer)
-      video.removeEventListener("loadedmetadata", onReady)
-      resolve()
-    }
-    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
-      window.clearTimeout(timer)
-      resolve()
-    } else {
-      video.addEventListener("loadedmetadata", onReady, { once: true })
-    }
-  }).catch((e) => {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error("metadata-timeout")), timeoutMs)
+      const onReady = () => {
+        window.clearTimeout(timer)
+        video.removeEventListener("loadedmetadata", onReady)
+        resolve()
+      }
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        window.clearTimeout(timer)
+        resolve()
+      } else {
+        video.addEventListener("loadedmetadata", onReady, { once: true })
+      }
+    })
+  } catch (e) {
     logCameraError("video-metadata-timeout", e)
-    throw e
-  })
+    return {
+      ok: false,
+      failure: {
+        kind: "unknown",
+        rawName: "MetadataTimeout",
+        message: "Preview: tempo esgotado aguardando metadados do vídeo.",
+      },
+    }
+  }
 
   logCamera("video-metadata", {
     readyState: video.readyState,
@@ -401,40 +521,90 @@ export async function attachStreamToVideo(
     videoHeight: video.videoHeight,
   })
 
+  const hasDims = await waitVideoDimensions(video, 3_000)
+  if (!hasDims) {
+    logCamera("video-dimensions-missing", {
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      readyState: video.readyState,
+    })
+  }
+
   try {
-    await video.play()
-    logCamera("video-play-ok", { paused: video.paused, readyState: video.readyState })
+    await playVideoWithRetry(video)
+    if (video.paused || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      return {
+        ok: false,
+        failure: {
+          kind: "play_blocked",
+          rawName: "PlayIncomplete",
+          message: "Preview não iniciou. Toque em “Tentar novamente”.",
+        },
+      }
+    }
+    logCamera("active-stream", {
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      readyState: video.readyState,
+    })
     return { ok: true }
   } catch (e) {
-    logCameraError("video-play-fail", e)
     const err = e as DOMException
-    if (err?.name === "NotAllowedError") {
+    const failure = failureFromDomError(e)
+    if (isNotAllowedErrorName(err?.name)) {
       return {
         ok: false,
         failure: {
           kind: "play_blocked",
           rawName: err.name,
           rawMessage: err.message,
-          message: "Toque na tela para iniciar o preview do vídeo.",
+          message: "Autoplay bloqueado. Toque em “Tentar novamente” ou na área do vídeo.",
         },
       }
     }
-    return {
-      ok: false,
-      failure: {
-        kind: "unknown",
-        rawName: err?.name,
-        rawMessage: err?.message,
-        message: err?.message ? `Preview: ${err.message}` : "Preview não iniciou.",
-      },
-    }
+    return { ok: false, failure }
   }
+}
+
+/** denied SOMENTE se rawName é NotAllowedError — nunca por kind genérico. */
+export function isCameraPermissionDenied(failure: CameraAccessFailure): boolean {
+  return isNotAllowedErrorName(failure.rawName)
 }
 
 export function mapFailureToCameraPhase(
   failure: CameraAccessFailure,
 ): "denied" | "failed" | "unsupported" {
-  if (failure.kind === "denied") return "denied"
   if (failure.kind === "unsupported" || failure.kind === "insecure") return "unsupported"
+  if (isCameraPermissionDenied(failure)) return "denied"
   return "failed"
+}
+
+export function getCameraUiTitle(
+  phase: "prompt" | "loading" | "live" | "denied" | "failed" | "unsupported",
+  failure?: CameraAccessFailure | null,
+): string {
+  if (phase === "denied") return "Permissão da câmera negada"
+  if (phase === "unsupported") return "Câmera não suportada"
+  if (phase === "loading") return "Iniciando câmera…"
+  if (phase === "live") return "Câmera ativa"
+  if (phase === "prompt") return "Permita o acesso à câmera"
+
+  const name = failure?.rawName ?? ""
+  if (name === "NotReadableError" || name === "TrackStartError") return "Câmera ocupada"
+  if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+    return "Configuração incompatível"
+  }
+  if (name === "AbortError") return "Falha ao iniciar câmera"
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") return "Câmera não encontrada"
+  if (failure?.kind === "play_blocked") return "Preview bloqueado"
+  if (failure?.kind === "stream_inactive") return "Stream inativo"
+  return "Falha ao iniciar a câmera"
+}
+
+export function formatCameraErrorDetail(failure: CameraAccessFailure): string {
+  const base = failure.message
+  if (failure.rawName && failure.rawMessage && !base.includes(failure.rawMessage)) {
+    return `${base} (${failure.rawName}: ${failure.rawMessage})`
+  }
+  return base
 }

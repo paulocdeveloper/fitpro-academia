@@ -13,6 +13,8 @@ import { captureFrameQuality, frameStabilityScore } from "@/lib/nutrition/client
 import {
   applyContinuousFocus,
   attachStreamToVideo,
+  formatCameraErrorDetail,
+  getCameraUiTitle,
   isGetUserMediaSupported,
   isStreamLive,
   logCamera,
@@ -70,6 +72,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
   const [manualCarbo100, setManualCarbo100] = useState("")
   const [manualGord100, setManualGord100] = useState("")
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [cameraFailure, setCameraFailure] = useState<CameraAccessFailure | null>(null)
   const [cameraPhase, setCameraPhase] = useState<CameraPhase>("prompt")
   const cameraRequestId = useRef(0)
   const mountedRef = useRef(true)
@@ -91,13 +94,23 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
 
   const stopCamera = useCallback(() => {
     const v = videoRef.current
-    if (v) {
-      v.pause()
-      v.srcObject = null
-    }
     stopMediaStream(streamRef.current)
     streamRef.current = null
+    void releaseCameraHardware(null, v)
     logCamera("stream-stopped")
+  }, [])
+
+  const applyCameraFailure = useCallback((failure: CameraAccessFailure) => {
+    const phase = mapFailureToCameraPhase(failure)
+    setCameraFailure(failure)
+    setCameraPhase(phase)
+    setCameraError(formatCameraErrorDetail(failure))
+    logCamera("request-failed", {
+      phase,
+      kind: failure.kind,
+      rawName: failure.rawName,
+      rawMessage: failure.rawMessage,
+    })
   }, [])
 
   const activateLiveStream = useCallback(
@@ -119,28 +132,30 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
       }
 
       if (!attach.ok) {
-        const phase = mapFailureToCameraPhase(attach.failure)
-        setCameraPhase(phase === "denied" ? "denied" : "failed")
-        setCameraError(attach.failure.message)
+        applyCameraFailure(attach.failure)
         return
       }
 
-      if (!isStreamLive(stream)) {
-        setCameraPhase("failed")
-        setCameraError("Stream da câmera parou. Toque em “Permitir câmera”.")
+      if (!isStreamLive(stream) && video.videoWidth <= 0) {
+        applyCameraFailure({
+          kind: "stream_inactive",
+          rawName: "StreamInactive",
+          message: "Stream inativo. Toque em “Tentar novamente”.",
+        })
         return
       }
 
       setCameraPhase("live")
+      setCameraFailure(null)
       setCameraError(null)
-      logCamera("state-live", {
+      logCamera("active-stream", {
         requestId,
         readyState: video.readyState,
         w: video.videoWidth,
         h: video.videoHeight,
       })
     },
-    [],
+    [applyCameraFailure],
   )
 
   /** Abre modal; reutiliza stream vivo se existir. */
@@ -165,6 +180,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
 
     stopCamera()
     setCameraError(null)
+    setCameraFailure(null)
     setCameraPhase("prompt")
     void queryCameraPermission().then((perm) => {
       logCamera("open-permission-hint", { perm })
@@ -185,6 +201,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
 
       const requestId = ++cameraRequestId.current
       setCameraError(null)
+      setCameraFailure(null)
       setCameraPhase("loading")
       logCamera("user-request", { requestId, facing })
 
@@ -195,7 +212,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
             return
           }
 
-          await releaseCameraHardware(streamRef.current)
+          await releaseCameraHardware(streamRef.current, videoRef.current)
           streamRef.current = null
           const stream = await requestCameraStream(facing)
           if (!mountedRef.current || requestId !== cameraRequestId.current) return
@@ -205,28 +222,19 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
           await activateLiveStream(stream, requestId)
         } catch (e) {
           if (!mountedRef.current || requestId !== cameraRequestId.current) return
-          const failure = e as CameraAccessFailure
-          const phase = mapFailureToCameraPhase(
-            failure?.kind
-              ? failure
-              : { kind: "unknown", message: "Não foi possível abrir a câmera." },
-          )
-          setCameraPhase(phase)
-          const detail = failure?.rawMessage
-            ? `${failure.message} [${failure.rawName}: ${failure.rawMessage}]`
-            : failure?.message ?? "Não foi possível abrir a câmera."
-          setCameraError(detail)
-          logCamera("request-failed", {
-            requestId,
-            kind: failure?.kind,
-            phase,
-            rawName: failure?.rawName,
-            rawMessage: failure?.rawMessage,
-          })
+          const failure = (e as CameraAccessFailure)?.kind
+            ? (e as CameraAccessFailure)
+            : {
+                kind: "unknown" as const,
+                rawName: (e as Error)?.name,
+                rawMessage: (e as Error)?.message,
+                message: (e as Error)?.message || "Não foi possível abrir a câmera.",
+              }
+          applyCameraFailure(failure)
         }
       })()
     },
-    [activateLiveStream, facingMode, stopCamera],
+    [activateLiveStream, applyCameraFailure, facingMode, stopCamera],
   )
 
   const switchCamera = useCallback(() => {
@@ -396,6 +404,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     setAnalysis(null)
     setPreviewImage(null)
     setCameraError(null)
+    setCameraFailure(null)
     setCameraPhase("prompt")
     setQualityHint(null)
     setStability(0)
@@ -575,13 +584,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                             <Camera className="w-10 h-10 text-muted-foreground" />
                             <div>
                               <p className="font-semibold text-sm">
-                                {cameraPhase === "denied"
-                                  ? "Permissão da câmera bloqueada"
-                                  : cameraPhase === "failed"
-                                    ? "Falha ao iniciar a câmera"
-                                    : cameraPhase === "unsupported"
-                                      ? "Câmera não suportada"
-                                      : "Permita o acesso à câmera"}
+                                {getCameraUiTitle(cameraPhase, cameraFailure)}
                               </p>
                               <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
                                 {cameraError ??
