@@ -6,6 +6,7 @@ import {
   roleLabel,
 } from "@/lib/auth/user-display"
 import { getSessionFromRequest } from "@/lib/auth/session"
+import { loadUserSubscription } from "@/lib/premium/subscription"
 
 export async function GET(req: Request) {
   const session = await getSessionFromRequest(req)
@@ -20,6 +21,7 @@ export async function GET(req: Request) {
   const nome = rows[0]?.nome ?? null
   const displayName = displayNameFrom(nome, session.role)
   const label = roleLabel(session.role)
+  const subscription = await loadUserSubscription(session.userId, session.role)
 
   return NextResponse.json({
     user: {
@@ -29,6 +31,10 @@ export async function GET(req: Request) {
       displayName,
       roleLabel: label,
       initials: initialsFromDisplayName(displayName),
+      isPremium: subscription.isPremium,
+      subscriptionStatus: subscription.subscriptionStatus,
+      planType: subscription.planType,
+      premiumExpiresAt: subscription.premiumExpiresAt,
     },
   })
 }

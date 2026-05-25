@@ -10,6 +10,10 @@ export type SessionUser = {
   displayName: string
   roleLabel: string
   initials: string
+  isPremium?: boolean
+  subscriptionStatus?: string
+  planType?: string
+  premiumExpiresAt?: string | null
 }
 
 export function useSessionUser() {

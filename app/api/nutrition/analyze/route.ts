@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { requireAuth } from "@/lib/api/require-auth"
+import { requirePremiumNutrition } from "@/lib/api/require-premium"
 import { analyzeWithHeuristic } from "@/lib/nutrition/heuristic-vision"
 import { analyzeImageQuality } from "@/lib/nutrition/image-quality"
 import { isOpenAIConfigured } from "@/lib/nutrition/openai-config"
@@ -45,7 +45,7 @@ function missingOpenAI(imageQuality: MealAnalysisResult["imageQuality"]) {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireAuth(req)
+  const auth = await requirePremiumNutrition(req)
   if (!auth.ok) return auth.response
 
   let body: Body

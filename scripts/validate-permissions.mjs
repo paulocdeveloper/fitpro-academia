@@ -85,6 +85,10 @@ async function main() {
       console.log(blocked ? "✓" : "✗", "usuario bloqueado em /financeiro →", fin.status, fin.location ?? "")
       const evo = await get("/evolucao", usuario.token)
       console.log(evo.status === 200 ? "✓" : "~", "GET /evolucao usuario →", evo.status)
+      const dietas = await get("/dietas", usuario.token)
+      const dietasBlocked =
+        (dietas.status === 307 || dietas.status === 302) && dietas.location?.includes("/premium")
+      console.log(dietasBlocked ? "✓" : "~", "usuario FREE /dietas → premium:", dietas.status)
     } else {
       console.log("\n~ Login usuario falhou — registre com VALIDATE_USUARIO_* ou use cadastro-fitness")
     }
@@ -99,6 +103,10 @@ async function main() {
       const blocked =
         fin.status === 307 || fin.status === 302 || fin.location?.includes("treino-inteligente")
       console.log(blocked ? "✓" : "✗", "usuario /financeiro redirect →", fin.status)
+      const dietas = await get("/dietas", reg.token)
+      const dietasBlocked =
+        (dietas.status === 307 || dietas.status === 302) && dietas.location?.includes("/premium")
+      console.log(dietasBlocked ? "✓" : "✗", "usuario FREE /dietas → premium:", dietas.status)
     } else {
       console.log("\n~ Registro fitness:", reg.status, reg.json?.error ?? reg.json)
     }

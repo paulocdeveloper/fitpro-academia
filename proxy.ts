@@ -7,6 +7,8 @@ import {
   redirectForForbiddenPath,
 } from "@/lib/auth/route-access"
 import { AUTH_COOKIE } from "@/lib/auth/session"
+import { requiresPremiumForPath } from "@/lib/premium/paths"
+import { PREMIUM_UPSELL_PATH } from "@/lib/auth/route-access"
 
 const PROTECTED_PREFIXES = [
   "/dashboard",
@@ -17,11 +19,14 @@ const PROTECTED_PREFIXES = [
   "/planos",
   "/agenda",
   "/dietas",
+  "/nutricao",
   "/exercicios",
   "/estoque",
   "/configuracoes",
   "/evolucao",
   "/perfil",
+  "/premium",
+  "/minha-assinatura",
 ]
 
 function needsPageAuth(pathname: string) {
@@ -70,6 +75,7 @@ export async function proxy(request: NextRequest) {
 
   try {
     const session = await verifyAccessToken(token)
+    const isPremium = session.isPremium === true
 
     if (pathname === "/dashboard" && isFitnessRole(session.role)) {
       const url = request.nextUrl.clone()
@@ -77,7 +83,13 @@ export async function proxy(request: NextRequest) {
       return withNoIndex(NextResponse.redirect(url))
     }
 
-    const forbidden = redirectForForbiddenPath(pathname, session.role)
+    if (requiresPremiumForPath(pathname, session.role) && !isPremium) {
+      const url = request.nextUrl.clone()
+      url.pathname = PREMIUM_UPSELL_PATH
+      return withNoIndex(NextResponse.redirect(url))
+    }
+
+    const forbidden = redirectForForbiddenPath(pathname, session.role, isPremium)
     if (forbidden) {
       const url = request.nextUrl.clone()
       url.pathname = forbidden

@@ -5,7 +5,7 @@ import { dbBool } from "@/lib/db-bool"
 import { isDuplicateEntry } from "@/lib/db-errors"
 import { ensureUsuarioPerfilInDb } from "@/lib/auth/ensure-usuario-perfil"
 import { ensureFitnessAcademiaId } from "@/lib/auth/resolve-academia"
-import { signAccessToken } from "@/lib/auth/jwt"
+import { signSessionToken } from "@/lib/auth/session-token"
 import { perfilToRole } from "@/lib/auth/roles"
 import { AUTH_COOKIE } from "@/lib/auth/session"
 
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     }
 
     const role = perfilToRole("usuario")
-    const token = await signAccessToken({
+    const token = await signSessionToken({
       userId,
       role,
       email,

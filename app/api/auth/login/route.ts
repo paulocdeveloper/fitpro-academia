@@ -4,7 +4,7 @@ import { query } from "@/lib/db"
 import { getDbConnectionInfo } from "@/lib/db-config"
 import { isMissingColumn, mapDbConnectionError } from "@/lib/db-errors"
 import { ensureUserAcademiaId } from "@/lib/auth/resolve-academia"
-import { signAccessToken } from "@/lib/auth/jwt"
+import { signSessionToken } from "@/lib/auth/session-token"
 import { perfilToRole } from "@/lib/auth/roles"
 import { AUTH_COOKIE } from "@/lib/auth/session"
 
@@ -118,7 +118,7 @@ export async function POST(req: Request) {
     }
 
     const role = perfilToRole(user.perfil)
-    const token = await signAccessToken({
+    const token = await signSessionToken({
       userId: user.id,
       role,
       email: user.email,

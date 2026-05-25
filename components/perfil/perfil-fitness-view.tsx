@@ -15,9 +15,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { PremiumBadge } from "@/components/premium/premium-badge"
 import { useSessionUser } from "@/lib/hooks/use-session-user"
 import type { PerfilTreinoInteligente } from "@/lib/treino-inteligente/generator"
-import { Brain, LogOut, RefreshCw, Sparkles } from "lucide-react"
+import { Brain, CreditCard, LogOut, RefreshCw, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
 export function PerfilFitnessView() {
@@ -77,9 +78,22 @@ export function PerfilFitnessView() {
       <Navbar title="Perfil" subtitle="Seus dados e preferências de treino" />
       <div className="flex-1 space-y-6 p-4 md:p-6 max-w-2xl mx-auto w-full">
         <div className="rounded-xl border border-border/50 bg-card p-4 space-y-2">
-          <p className="text-xs text-muted-foreground">Conta</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">Conta</p>
+            {!userLoading && (
+              <PremiumBadge variant={user?.isPremium ? "premium" : "free"} />
+            )}
+          </div>
           <p className="font-semibold">{userLoading ? "…" : user?.displayName}</p>
           <p className="text-sm text-muted-foreground">{user?.roleLabel}</p>
+          {!userLoading && (
+            <Button variant="outline" size="sm" asChild className="w-full gap-2 mt-2">
+              <Link href="/minha-assinatura">
+                <CreditCard className="h-4 w-4" />
+                Minha assinatura
+              </Link>
+            </Button>
+          )}
         </div>
 
         {loading || !perfil ? (

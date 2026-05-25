@@ -83,6 +83,9 @@ export const privatePathPrefixes = [
   "/configuracoes",
   "/evolucao",
   "/perfil",
+  "/premium",
+  "/minha-assinatura",
+  "/nutricao",
   "/api",
   "/_next",
 ]

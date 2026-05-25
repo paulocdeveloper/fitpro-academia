@@ -8,6 +8,10 @@ export type JwtPayloadUser = {
   email: string
   /** Tenant SaaS: todas as queries de dados devem filtrar por esta academia. */
   academiaId: number
+  /** Cache no token; APIs críticas validam também no banco. */
+  isPremium?: boolean
+  subscriptionStatus?: string
+  planType?: string
 }
 
 export async function signAccessToken(payload: JwtPayloadUser): Promise<string> {
@@ -16,6 +20,9 @@ export async function signAccessToken(payload: JwtPayloadUser): Promise<string> 
     role: payload.role,
     email: payload.email,
     academiaId: payload.academiaId,
+    isPremium: payload.isPremium ?? false,
+    subscriptionStatus: payload.subscriptionStatus ?? "free",
+    planType: payload.planType ?? "free",
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(String(payload.userId))
@@ -46,5 +53,10 @@ export async function verifyAccessToken(token: string): Promise<JwtPayloadUser> 
     role: payload.role as UserRole,
     email: typeof payload.email === "string" ? payload.email : "",
     academiaId,
+    isPremium: payload.isPremium === true,
+    subscriptionStatus:
+      typeof payload.subscriptionStatus === "string" ? payload.subscriptionStatus : "free",
+    planType: typeof payload.planType === "string" ? payload.planType : "free",
   }
 }
+

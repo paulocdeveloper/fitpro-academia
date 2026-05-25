@@ -281,6 +281,17 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
       if (!res.ok) {
         setAnalysis(null)
         setState("not_found")
+        const premiumRequired =
+          res.status === 402 &&
+          data &&
+          typeof data === "object" &&
+          "code" in data &&
+          (data as { code?: string }).code === "PREMIUM_REQUIRED"
+        if (premiumRequired) {
+          setQualityHint("FitPro Premium necessário para o scanner com IA.")
+          window.location.href = "/premium"
+          return
+        }
         setQualityHint(typeof data?.error === "string" ? data.error : "Falha na analise.")
         return
       }

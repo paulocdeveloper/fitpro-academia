@@ -77,10 +77,11 @@ const usuarioNav: NavGroup[] = [
     label: "Fitness",
     items: [
       { href: "/exercicios", label: "Exercícios", icon: BookOpen },
-      { href: "/dietas", label: "Nutrição", icon: Salad },
+      { href: "/dietas", label: "Nutrição", icon: Salad, badge: "Premium" },
       { href: "/treino-inteligente", label: "IA Treino", icon: Sparkles },
       { href: "/evolucao", label: "Evolução", icon: TrendingUp },
       { href: "/perfil", label: "Perfil", icon: UserCircle },
+      { href: "/minha-assinatura", label: "Minha assinatura", icon: CreditCard },
     ],
   },
 ]
