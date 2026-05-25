@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FoodScanner, type ScannedFood } from "@/components/nutrition/food-scanner"
+import { useIsStaff } from "@/lib/hooks/use-is-staff"
 import {
   Coffee,
   Sun,
@@ -162,6 +163,7 @@ function newRefeicaoId() {
 }
 
 export default function DietasPage() {
+  const { isStaff, user } = useIsStaff()
   const [dietaData, setDietaData] = useState(dietasInicial)
   const [addRefeicaoOpen, setAddRefeicaoOpen] = useState(false)
   const [novaRefeicaoNome, setNovaRefeicaoNome] = useState("")
@@ -234,6 +236,30 @@ export default function DietasPage() {
       )
       return [updated]
     })
+  }
+
+  if (!isStaff) {
+    return (
+      <div>
+        <Navbar
+          title="Nutrição"
+          subtitle={
+            user
+              ? `Olá, ${user.displayName.split(" ")[0]} — escaneie suas refeições`
+              : "Escaneie suas refeições"
+          }
+        />
+        <div className="p-4 md:p-6 space-y-6 max-w-xl mx-auto">
+          <div className="metric-card rounded-xl p-6 space-y-4 text-center">
+            <UtensilsCrossed className="w-10 h-10 mx-auto neon-text" />
+            <p className="text-sm text-muted-foreground">
+              Use o escaneador com IA Vision para analisar calorias e macros da sua refeição.
+            </p>
+            <FoodScanner onAddFood={handleFoodAdded} />
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

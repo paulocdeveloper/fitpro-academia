@@ -4,21 +4,10 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect } from "react"
 import { useAlunosCount } from "@/lib/hooks/use-alunos-count"
-import type { LucideIcon } from "lucide-react"
-import {
-  LayoutDashboard,
-  Users,
-  Dumbbell,
-  BookOpen,
-  Salad,
-  CalendarDays,
-  CreditCard,
-  BarChart3,
-  Package,
-  Zap,
-  Settings,
-} from "lucide-react"
-import { cn } from "@/lib/utils"
+import { useIsStaff } from "@/lib/hooks/use-is-staff"
+import { ALUNO_HOME, STAFF_HOME } from "@/lib/auth/route-access"
+import { navGroupsForRole, showConfiguracoesLink, type NavItem } from "@/lib/navigation"
+import { Zap, Settings } from "lucide-react"
 import { SidebarUser } from "@/components/layout/sidebar-user"
 import {
   Sidebar,
@@ -35,40 +24,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
-
-type NavItem = {
-  href: string
-  label: string
-  icon: LucideIcon
-  badge?: string
-}
-
-const navItems: { label: string; items: NavItem[] }[] = [
-  {
-    label: "Principal",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/alunos", label: "Alunos", icon: Users },
-      { href: "/treinos", label: "Treinos", icon: Dumbbell },
-      { href: "/exercicios", label: "Exercícios", icon: BookOpen },
-    ],
-  },
-  {
-    label: "Saúde",
-    items: [
-      { href: "/dietas", label: "Nutrição", icon: Salad },
-      { href: "/agenda", label: "Agenda", icon: CalendarDays },
-    ],
-  },
-  {
-    label: "Gestão",
-    items: [
-      { href: "/financeiro", label: "Financeiro", icon: CreditCard },
-      { href: "/planos", label: "Planos", icon: BarChart3 },
-      { href: "/estoque", label: "Estoque", icon: Package },
-    ],
-  },
-]
+import { cn } from "@/lib/utils"
 
 function NavLink({
   item,
@@ -109,7 +65,11 @@ function NavLink({
 export function AppSidebar() {
   const pathname = usePathname()
   const alunosCount = useAlunosCount(pathname)
+  const { user, loading, isStaff } = useIsStaff()
   const { isMobile, setOpenMobile } = useSidebar()
+  const navItems = navGroupsForRole(user?.role)
+  const homeHref = isStaff ? STAFF_HOME : ALUNO_HOME
+  const showConfig = showConfiguracoesLink(user?.role)
 
   useEffect(() => {
     if (isMobile) setOpenMobile(false)
@@ -118,7 +78,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r border-border/50">
       <SidebarHeader className="border-b border-border/50 px-2 py-4">
-        <Link href="/dashboard" className="flex items-center gap-3 overflow-hidden px-2">
+        <Link href={homeHref} className="flex items-center gap-3 overflow-hidden px-2">
           <div
             className="neon-glow flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
             style={{ background: "var(--primary)" }}
@@ -171,21 +131,23 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-border/50 p-2">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              isActive={pathname === "/configuracoes"}
-              tooltip="Minha conta"
-              className={cn(pathname === "/configuracoes" && "sidebar-item-active")}
-            >
-              <Link href="/configuracoes">
-                <Settings className="h-4 w-4" />
-                <span>Minha conta</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        {showConfig && (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                isActive={pathname === "/configuracoes"}
+                tooltip="Minha conta"
+                className={cn(pathname === "/configuracoes" && "sidebar-item-active")}
+              >
+                <Link href="/configuracoes">
+                  <Settings className="h-4 w-4" />
+                  <span>Minha conta</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        )}
         <SidebarUser />
       </SidebarFooter>
       <SidebarRail />

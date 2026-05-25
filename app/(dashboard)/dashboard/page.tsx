@@ -1,9 +1,11 @@
 "use client"
 
-import { usePathname } from "next/navigation"
+import { useEffect } from "react"
+import { usePathname, useRouter } from "next/navigation"
 import { Navbar } from "@/components/layout/navbar"
 import { useAlunosCount } from "@/lib/hooks/use-alunos-count"
-import { useSessionUser } from "@/lib/hooks/use-session-user"
+import { useIsStaff } from "@/lib/hooks/use-is-staff"
+import { ALUNO_HOME } from "@/lib/auth/route-access"
 import { MetricCard } from "@/components/dashboard/metric-card"
 import { Users, DollarSign, Dumbbell, UserPlus, Activity, CheckCircle2, Clock, AlertCircle } from "lucide-react"
 import {
@@ -78,8 +80,20 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export default function DashboardPage() {
   const pathname = usePathname()
+  const router = useRouter()
   const alunosCount = useAlunosCount(pathname)
-  const { user } = useSessionUser()
+  const { user, loading, isStaff } = useIsStaff()
+
+  useEffect(() => {
+    if (!loading && user && !isStaff) {
+      router.replace(ALUNO_HOME)
+    }
+  }, [loading, user, isStaff, router])
+
+  if (!loading && user && !isStaff) {
+    return null
+  }
+
   const welcome = user ? `Bem-vindo de volta, ${user.displayName}` : "Bem-vindo de volta"
 
   return (

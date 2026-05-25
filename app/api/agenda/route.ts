@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
-import { requireStaff } from "@/lib/api/require-auth"
+import { requireAuth, requireStaff } from "@/lib/api/require-auth"
+import { isStaffRole } from "@/lib/auth/roles"
 import { insertRow, query, tableExists } from "@/lib/db"
+import { resolveAlunoForUser } from "@/lib/treino-inteligente/aluno-record"
 
 export type TipoEventoAgenda = "treino" | "avaliacao" | "nutricao"
 
@@ -62,7 +64,7 @@ function mapEvento(r: EventoRow) {
 }
 
 export async function GET(req: Request) {
-  const auth = await requireStaff(req)
+  const auth = await requireAuth(req)
   if (!auth.ok) return auth.response
 
   const url = new URL(req.url)
@@ -95,13 +97,31 @@ export async function GET(req: Request) {
       )
     }
 
-    const rows = await query<EventoRow>(
-      `SELECT id, data_evento, horario, tipo, aluno_nome, aluno_id, duracao, observacoes
-       FROM agenda_eventos
-       WHERE academia_id = ? AND data_evento >= ? AND data_evento <= ?
-       ORDER BY data_evento ASC, horario ASC`,
-      [auth.session.academiaId, inicioISO, fimISO],
-    )
+    const staff = isStaffRole(auth.session.role)
+    let rows: EventoRow[]
+
+    if (staff) {
+      rows = await query<EventoRow>(
+        `SELECT id, data_evento, horario, tipo, aluno_nome, aluno_id, duracao, observacoes
+         FROM agenda_eventos
+         WHERE academia_id = ? AND data_evento >= ? AND data_evento <= ?
+         ORDER BY data_evento ASC, horario ASC`,
+        [auth.session.academiaId, inicioISO, fimISO],
+      )
+    } else {
+      const aluno = await resolveAlunoForUser(auth.session)
+      if (!aluno) {
+        return NextResponse.json({ inicio: inicioISO, fim: fimISO, eventos: [] })
+      }
+      rows = await query<EventoRow>(
+        `SELECT id, data_evento, horario, tipo, aluno_nome, aluno_id, duracao, observacoes
+         FROM agenda_eventos
+         WHERE academia_id = ? AND data_evento >= ? AND data_evento <= ?
+           AND (aluno_id = ? OR LOWER(aluno_nome) = LOWER(?))
+         ORDER BY data_evento ASC, horario ASC`,
+        [auth.session.academiaId, inicioISO, fimISO, aluno.id, aluno.nome],
+      )
+    }
 
     return NextResponse.json({
       inicio: inicioISO,

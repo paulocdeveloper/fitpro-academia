@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { requireAuth } from "@/lib/api/require-auth"
 import { insertRow, query } from "@/lib/db"
 import { usuarioPertenceAcademia } from "@/lib/usuario-academia"
-import { canViewAllTreinos } from "@/lib/auth/roles"
+import { isStaffRole, canViewAllTreinos } from "@/lib/auth/roles"
 import type { UserRole } from "@/lib/auth/roles"
 import {
   buildTreinosInsertSql,
@@ -71,6 +71,13 @@ export async function GET(req: Request) {
   if (!auth.ok) return auth.response
   const session = auth.session
 
+  if (!isStaffRole(session.role)) {
+    return NextResponse.json(
+      { error: "Alunos devem usar Treino Inteligente." },
+      { status: 403 },
+    )
+  }
+
   try {
     const map = await resolveTreinosColumnMap()
     if (!map.academiaId) {
@@ -80,26 +87,17 @@ export async function GET(req: Request) {
       )
     }
     const base = buildTreinosSelectSql(map)
-    const staff = canViewAllTreinos(session.role)
     const owner = treinosOwnerRef(map)
     const acPred = treinosAcademiaPredicate(map, "t")
 
     let sql: string
     const params: unknown[] = []
 
-    if (staff) {
-      if (acPred) {
-        sql = `${base} WHERE ${acPred} ORDER BY t.id DESC`
-        params.push(session.academiaId)
-      } else {
-        sql = `${base} ORDER BY t.id DESC`
-      }
-    } else if (acPred) {
-      sql = `${base} WHERE ${acPred} AND ${owner} = ? ORDER BY t.id DESC`
-      params.push(session.academiaId, session.userId)
+    if (acPred) {
+      sql = `${base} WHERE ${acPred} ORDER BY t.id DESC`
+      params.push(session.academiaId)
     } else {
-      sql = `${base} WHERE ${owner} = ? ORDER BY t.id DESC`
-      params.push(session.userId)
+      sql = `${base} ORDER BY t.id DESC`
     }
 
     const rows = await query<TreinoRow>(sql, params)
@@ -122,6 +120,13 @@ export async function POST(req: Request) {
   const auth = await requireAuth(req)
   if (!auth.ok) return auth.response
   const session = auth.session
+
+  if (!isStaffRole(session.role)) {
+    return NextResponse.json(
+      { error: "Alunos devem usar Treino Inteligente." },
+      { status: 403 },
+    )
+  }
 
   let body: PostBody
   try {

@@ -12,6 +12,10 @@ export function isStaffRole(role: UserRole): boolean {
   return role === "admin" || role === "personal"
 }
 
+export function isAlunoRole(role: UserRole): boolean {
+  return role === "aluno"
+}
+
 export function canViewAllTreinos(role: UserRole): boolean {
   return isStaffRole(role)
 }

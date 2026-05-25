@@ -121,7 +121,7 @@ export default function EstoquePage() {
 
           <TabsContent value="movimentacoes" className="mt-4 space-y-3">
             <Button size="sm" className="gap-2" style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}>
-              <Plus className="w-4 h-4" /> Registrar Movimentação
+              <Plus className="w-4 h-4" /> Registre Movimentação
             </Button>
             {movimentacoes.map((m, i) => (
               <div key={i} className="metric-card rounded-xl p-4 flex items-center gap-4">

@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { verifyAccessToken } from "@/lib/auth/jwt"
+import {
+  ALUNO_HOME,
+  defaultHomeForRole,
+  redirectForForbiddenPath,
+} from "@/lib/auth/route-access"
 import { AUTH_COOKIE } from "@/lib/auth/session"
 
 const PROTECTED_PREFIXES = [
   "/dashboard",
   "/alunos",
   "/treinos",
+  "/treino-inteligente",
   "/financeiro",
   "/planos",
   "/agenda",
@@ -53,7 +59,27 @@ export async function proxy(request: NextRequest) {
   }
 
   try {
-    await verifyAccessToken(token)
+    const session = await verifyAccessToken(token)
+
+    if (pathname === "/dashboard" && session.role === "aluno") {
+      const url = request.nextUrl.clone()
+      url.pathname = ALUNO_HOME
+      return withNoIndex(NextResponse.redirect(url))
+    }
+
+    const forbidden = redirectForForbiddenPath(pathname, session.role)
+    if (forbidden) {
+      const url = request.nextUrl.clone()
+      url.pathname = forbidden
+      return withNoIndex(NextResponse.redirect(url))
+    }
+
+    if (pathname === "/login" || pathname === "/cadastro") {
+      const url = request.nextUrl.clone()
+      url.pathname = defaultHomeForRole(session.role)
+      return withNoIndex(NextResponse.redirect(url))
+    }
+
     return withNoIndex(NextResponse.next())
   } catch {
     const url = request.nextUrl.clone()

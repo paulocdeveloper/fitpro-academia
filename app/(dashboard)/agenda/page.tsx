@@ -24,6 +24,7 @@ import {
 import { ChevronLeft, ChevronRight, Dumbbell, Activity, Salad, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { useIsStaff } from "@/lib/hooks/use-is-staff"
 
 const diasSemana = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"]
 const horarios = [
@@ -88,6 +89,7 @@ function defaultForm(inicioSemana: Date) {
 }
 
 export default function AgendaPage() {
+  const { isStaff } = useIsStaff()
   const [semanaOffset, setSemanaOffset] = useState(0)
   const [eventos, setEventos] = useState<Evento[]>([])
   const [loading, setLoading] = useState(true)
@@ -151,6 +153,7 @@ export default function AgendaPage() {
   }, [fetchEventos])
 
   useEffect(() => {
+    if (!isStaff) return
     void (async () => {
       try {
         const res = await fetch("/api/alunos", { credentials: "include" })
@@ -161,7 +164,7 @@ export default function AgendaPage() {
         /* lista opcional */
       }
     })()
-  }, [])
+  }, [isStaff])
 
   const resetForm = useCallback(() => {
     const base = defaultForm(inicioSemana)
@@ -250,8 +253,8 @@ export default function AgendaPage() {
     <div>
       <Navbar
         title="Agenda"
-        subtitle={dataAtual}
-        action={{ label: "Novo Evento", onClick: openNovo }}
+        subtitle={isStaff ? dataAtual : `Seus compromissos — ${dataAtual}`}
+        action={isStaff ? { label: "Novo Evento", onClick: openNovo } : undefined}
       />
 
       <div className="p-6 space-y-5">
@@ -313,6 +316,7 @@ export default function AgendaPage() {
               >
                 <ChevronRight className="w-4 h-4" />
               </Button>
+              {isStaff && (
               <Button
                 type="button"
                 size="sm"
@@ -323,6 +327,7 @@ export default function AgendaPage() {
                 <Plus className="w-4 h-4" />
                 Novo
               </Button>
+              )}
             </div>
           </div>
 
@@ -401,6 +406,7 @@ export default function AgendaPage() {
         </div>
       </div>
 
+      {isStaff && (
       <Dialog
         open={novoOpen}
         onOpenChange={(open) => {
@@ -547,6 +553,7 @@ export default function AgendaPage() {
           </form>
         </DialogContent>
       </Dialog>
+      )}
     </div>
   )
 }

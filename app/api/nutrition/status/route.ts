@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server"
-import { requireStaff } from "@/lib/api/require-auth"
+import { requireAuth } from "@/lib/api/require-auth"
 import { getOpenAIConfig } from "@/lib/nutrition/openai-config"
 
 /** Status da IA nutricional (sem expor API key). */
 export async function GET(req: Request) {
-  const auth = await requireStaff(req)
+  const auth = await requireAuth(req)
   if (!auth.ok) return auth.response
 
   const { configured, model } = getOpenAIConfig()

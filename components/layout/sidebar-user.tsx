@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useSidebar } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useSessionUser } from "@/lib/hooks/use-session-user"
+import { isStaffRole } from "@/lib/auth/roles"
 import { cn } from "@/lib/utils"
 
 export function SidebarUser() {
@@ -44,7 +45,7 @@ export function SidebarUser() {
 
   const profile = (
     <Link
-      href="/configuracoes"
+      href={isStaffRole(user.role) ? "/configuracoes" : "/treino-inteligente"}
       className={cn(
         "flex min-w-0 items-center gap-3 rounded-lg px-1 py-1 hover:bg-secondary/80 transition-colors",
         collapsed && "justify-center px-0",

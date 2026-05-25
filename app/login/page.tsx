@@ -4,6 +4,8 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Zap, Eye, EyeOff, ArrowRight, Dumbbell, Users, BarChart3 } from "lucide-react"
+import { pathnameAllowedForRole, defaultHomeForRole } from "@/lib/auth/route-access"
+import type { UserRole } from "@/lib/auth/roles"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,14 +29,23 @@ export default function LoginPage() {
         credentials: "include",
         body: JSON.stringify({ email, password }),
       })
-      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string
+        user?: { role?: string }
+      }
       if (!res.ok) {
         setError(data.error ?? "Não foi possível entrar.")
         return
       }
+      const role = (data.user?.role as UserRole) ?? "admin"
+      const roleHome = defaultHomeForRole(role)
       const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null
       const next = params?.get("next")
-      router.push(next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard")
+      const safeNext =
+        next && next.startsWith("/") && !next.startsWith("//") && pathnameAllowedForRole(next, role)
+          ? next
+          : roleHome
+      router.push(safeNext)
       router.refresh()
     } catch {
       setError("Erro de conexão.")
@@ -159,7 +170,7 @@ export default function LoginPage() {
                 <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  Acessar Dashboard
+                  Acessar conta
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

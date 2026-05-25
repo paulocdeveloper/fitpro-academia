@@ -25,6 +25,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ProgramasTreinoView } from "@/components/exercicios/programas-treino-view"
 import { BIBLIOTECA_EXERCICIOS, countBibliotecaPorGrupo } from "@/lib/biblioteca-from-programas"
+import { useIsStaff } from "@/lib/hooks/use-is-staff"
 import { Search, PlayCircle, Dumbbell, Plus, LayoutGrid, BookOpen } from "lucide-react"
 
 type Exercicio = {
@@ -65,6 +66,7 @@ const defaultNovoExercicio = () => ({
 })
 
 export default function ExerciciosPage() {
+  const { isStaff } = useIsStaff()
   const [exercicios, setExercicios] = useState<Exercicio[]>(exerciciosInicial)
   const [search, setSearch] = useState("")
   const [grupo, setGrupo] = useState("Todos")
@@ -123,24 +125,34 @@ export default function ExerciciosPage() {
   return (
     <div>
       <Navbar
-        title="Exercícios & Treinos"
-        subtitle="Programas por nível e biblioteca de movimentos"
-        action={{
-          label: "Novo Exercício",
-          onClick: () => {
-            resetForm()
-            setNovoOpen(true)
-          },
-        }}
+        title={isStaff ? "Exercícios & Treinos" : "Exercícios"}
+        subtitle={
+          isStaff
+            ? "Programas por nível e biblioteca de movimentos"
+            : "Biblioteca de movimentos para consulta"
+        }
+        action={
+          isStaff
+            ? {
+                label: "Novo Exercício",
+                onClick: () => {
+                  resetForm()
+                  setNovoOpen(true)
+                },
+              }
+            : undefined
+        }
       />
 
       <div className="p-6 space-y-5">
-        <Tabs defaultValue="biblioteca" className="space-y-5">
+        <Tabs defaultValue={isStaff ? "biblioteca" : "biblioteca"} className="space-y-5">
           <TabsList className="bg-secondary border border-border/50 p-1 h-auto flex-wrap">
+            {isStaff && (
             <TabsTrigger value="programas" className="gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary">
               <LayoutGrid className="w-4 h-4" />
               Programas de treino
             </TabsTrigger>
+            )}
             <TabsTrigger value="biblioteca" className="gap-2 data-[state=active]:bg-primary/15 data-[state=active]:text-primary">
               <BookOpen className="w-4 h-4" />
               Biblioteca
@@ -148,7 +160,7 @@ export default function ExerciciosPage() {
           </TabsList>
 
           <TabsContent value="programas" className="mt-0">
-            <ProgramasTreinoView />
+            {isStaff ? <ProgramasTreinoView /> : null}
           </TabsContent>
 
           <TabsContent value="biblioteca" className="mt-0 space-y-5">
@@ -163,6 +175,7 @@ export default function ExerciciosPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input placeholder="Buscar exercício..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 bg-secondary border-border/50" />
           </div>
+          {isStaff && (
           <Button
             type="button"
             className="gap-2 font-semibold shrink-0 w-full sm:w-auto"
@@ -175,6 +188,7 @@ export default function ExerciciosPage() {
             <Plus className="w-4 h-4" />
             Novo exercício
           </Button>
+          )}
           <Select value={grupo} onValueChange={setGrupo}>
             <SelectTrigger className="w-full sm:w-44 bg-secondary border-border/50">
               <SelectValue placeholder="Grupo muscular" />
