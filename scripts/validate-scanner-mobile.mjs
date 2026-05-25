@@ -6,17 +6,24 @@ import { resolve } from "node:path"
 
 const BASE = process.env.PROD_URL ?? "https://fitpro-academia.onrender.com"
 const SCANNER = resolve("components/nutrition/food-scanner.tsx")
+const CAMERA = resolve("lib/nutrition/camera-access.ts")
 const LAYOUT = resolve("app/layout.tsx")
 
 console.log("=== Validação Scanner Mobile ===\n")
 
 let ok = true
 const scanner = readFileSync(SCANNER, "utf8")
+const camera = existsSync(CAMERA) ? readFileSync(CAMERA, "utf8") : ""
 const layout = existsSync(LAYOUT) ? readFileSync(LAYOUT, "utf8") : ""
 
 const checks = [
   ["Câmera traseira padrão (environment)", /useState<CameraFacing>\("environment"\)/.test(scanner)],
-  ["Autofocus contínuo", /focusMode.*continuous/.test(scanner)],
+  ["Autofocus contínuo", /focusMode.*continuous/.test(scanner + camera)],
+  ["Fallback getUserMedia (video: true)", /video:\s*true/.test(camera)],
+  ["Retry câmera", /RETRY_ROUNDS|retry-round/.test(camera)],
+  ["Log erro real (console.error)", /logCameraError/.test(camera)],
+  ["Cleanup tracks (getTracks)", /getTracks\(\)/.test(camera + scanner)],
+  ["facingMode não bloqueia stream", /tryPreferFacing|facing-skip/.test(camera)],
   ["Estabilização antes da captura (≥55%)", /stability < 0\.55/.test(scanner)],
   ["playsInline (iOS Safari)", /playsInline/.test(scanner)],
   ["Toggle câmera traseira/frontal", /SwitchCamera/.test(scanner)],

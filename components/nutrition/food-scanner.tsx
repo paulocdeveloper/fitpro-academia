@@ -18,7 +18,9 @@ import {
   logCamera,
   mapFailureToCameraPhase,
   queryCameraPermission,
+  releaseCameraHardware,
   requestCameraStream,
+  stopMediaStream,
   type CameraAccessFailure,
   type CameraFacing,
 } from "@/lib/nutrition/camera-access"
@@ -89,12 +91,13 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
 
   const stopCamera = useCallback(() => {
     const v = videoRef.current
-    if (v) v.srcObject = null
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop())
-      streamRef.current = null
-      logCamera("stream-stopped")
+    if (v) {
+      v.pause()
+      v.srcObject = null
     }
+    stopMediaStream(streamRef.current)
+    streamRef.current = null
+    logCamera("stream-stopped")
   }, [])
 
   const activateLiveStream = useCallback(
@@ -192,7 +195,8 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
             return
           }
 
-          stopCamera()
+          await releaseCameraHardware(streamRef.current)
+          streamRef.current = null
           const stream = await requestCameraStream(facing)
           if (!mountedRef.current || requestId !== cameraRequestId.current) return
 
@@ -208,8 +212,17 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
               : { kind: "unknown", message: "Não foi possível abrir a câmera." },
           )
           setCameraPhase(phase)
-          setCameraError(failure?.message ?? "Não foi possível abrir a câmera.")
-          logCamera("request-failed", { requestId, kind: failure?.kind, phase })
+          const detail = failure?.rawMessage
+            ? `${failure.message} [${failure.rawName}: ${failure.rawMessage}]`
+            : failure?.message ?? "Não foi possível abrir a câmera."
+          setCameraError(detail)
+          logCamera("request-failed", {
+            requestId,
+            kind: failure?.kind,
+            phase,
+            rawName: failure?.rawName,
+            rawMessage: failure?.rawMessage,
+          })
         }
       })()
     },
