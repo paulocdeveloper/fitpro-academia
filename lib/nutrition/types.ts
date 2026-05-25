@@ -50,7 +50,10 @@ export type MealAnalysisResult = {
   engine: "openai" | "heuristic"
   model?: string
   error?: string
+  /** Aviso não bloqueante (ex.: confiança moderada). */
+  warning?: string
 }
 
-export const MIN_CONFIDENCE = 55
-export const MIN_ITEM_CONFIDENCE = 50
+/** Confiança mínima do prato — abaixo disso ainda pode retornar itens com aviso. */
+export const MIN_CONFIDENCE = 42
+export const MIN_ITEM_CONFIDENCE = 38

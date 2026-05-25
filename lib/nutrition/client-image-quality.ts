@@ -8,7 +8,8 @@ export function captureFrameQuality(
   const h = video.videoHeight
   if (!w || !h) return null
 
-  const maxW = 1280
+  // 1536px + JPEG 0.88 — bom equilíbrio qualidade/tamanho no Safari iPhone
+  const maxW = 1536
   const scale = Math.min(1, maxW / w)
   const cw = Math.round(w * scale)
   const ch = Math.round(h * scale)
@@ -16,10 +17,12 @@ export function captureFrameQuality(
   canvas.height = ch
   const ctx = canvas.getContext("2d", { willReadFrequently: true })
   if (!ctx) return null
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = "high"
   ctx.drawImage(video, 0, 0, cw, ch)
   const imageData = ctx.getImageData(0, 0, cw, ch)
   const report = analyzeImageQuality(imageData.data, cw, ch)
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.92)
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.88)
   return { report, dataUrl, pixels: Array.from(imageData.data) }
 }
 

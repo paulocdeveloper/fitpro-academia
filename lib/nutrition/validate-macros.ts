@@ -69,7 +69,7 @@ export function normalizeMacroItem(raw: Partial<DetectedFoodItem>, fallbackConfi
   }
 }
 
-export function filterValidItems(items: DetectedFoodItem[], confiancaGeral: number): DetectedFoodItem[] {
-  if (confiancaGeral < MIN_CONFIDENCE) return []
+/** Mantém itens com confiança por alimento; não descarta tudo por confiança geral baixa. */
+export function filterValidItems(items: DetectedFoodItem[]): DetectedFoodItem[] {
   return items.filter((it) => it.confianca >= MIN_ITEM_CONFIDENCE)
 }

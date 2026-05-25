@@ -60,10 +60,10 @@ function buildCameraConstraints(facing: CameraFacing, allowFrontFallback: boolea
 type CameraFacing = "environment" | "user"
 
 const SCAN_STEPS = [
-  "Validando qualidade da imagem...",
-  "Detectando alimentos no prato...",
-  "Classificando macros nutricionais...",
-  "Calculando calorias e confiança...",
+  "Enviando foto do prato...",
+  "Analisando comida com IA...",
+  "Identificando alimentos no prato...",
+  "Estimando porções e macros...",
 ]
 
 export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => void }) {
@@ -265,9 +265,6 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           image: captured.dataUrl,
-          pixels: captured.pixels,
-          width: captured.report.width,
-          height: captured.report.height,
           quality: {
             ok: captured.report.ok,
             score: captured.report.score,
@@ -278,28 +275,44 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
       const data = (await res.json().catch(() => null)) as MealAnalysisResult | { error?: string }
       clearInterval(stepTimer)
 
-      if (!res.ok) {
+      const premiumRequired =
+        !res.ok &&
+        res.status === 402 &&
+        data &&
+        typeof data === "object" &&
+        "code" in data &&
+        (data as { code?: string }).code === "PREMIUM_REQUIRED"
+      if (premiumRequired) {
         setAnalysis(null)
         setState("not_found")
-        const premiumRequired =
-          res.status === 402 &&
-          data &&
-          typeof data === "object" &&
-          "code" in data &&
-          (data as { code?: string }).code === "PREMIUM_REQUIRED"
-        if (premiumRequired) {
-          setQualityHint("FitPro Premium necessário para o scanner com IA.")
-          window.location.href = "/premium"
-          return
-        }
-        setQualityHint(typeof data?.error === "string" ? data.error : "Falha na analise.")
+        setQualityHint("FitPro Premium necessário para o scanner com IA.")
+        window.location.href = "/premium"
         return
       }
 
       const result = data as MealAnalysisResult
-      setAnalysis(result)
+      const isAnalyzePayload =
+        result && typeof result === "object" && "engine" in result && Array.isArray(result.items)
 
-      if (result.ok && result.items.length > 0) {
+      if (!res.ok && res.status !== 422 && !isAnalyzePayload) {
+        setAnalysis(null)
+        setState("not_found")
+        setQualityHint(typeof data?.error === "string" ? data.error : "Falha na analise.")
+        return
+      }
+
+      if (!isAnalyzePayload) {
+        setAnalysis(null)
+        setState("not_found")
+        setQualityHint("Resposta inválida do servidor.")
+        return
+      }
+      setAnalysis(result)
+      const hasItems = result.items.length > 0
+      if (result.ok && hasItems) {
+        setState("detected")
+      } else if (hasItems) {
+        setQualityHint(result.warning ?? result.error ?? "Revise os itens detectados.")
         setState("detected")
       } else {
         setQualityHint(result.error ?? "Confiança insuficiente para identificar o prato.")
@@ -467,7 +480,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                 <div>
                   <p className="font-semibold text-sm" style={{ fontFamily: "var(--font-space-grotesk)" }}>
                     {state === "camera" && "Escanear Comida"}
-                    {state === "scanning" && "IA Nutricional"}
+                    {state === "scanning" && "Analisando comida com IA"}
                     {state === "detected" && "Análise Completa"}
                     {state === "not_found" && "Não Identificado"}
                     {state === "poor_quality" && "Imagem Inadequada"}
@@ -475,7 +488,10 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {state === "camera" && "Aponte para o prato — detecção automática"}
-                    {state === "scanning" && SCAN_STEPS[scanStep]}
+                    {state === "scanning" &&
+                      (visionReady
+                        ? `GPT-4o Vision · ${SCAN_STEPS[scanStep]}`
+                        : SCAN_STEPS[scanStep])}
                     {state === "detected" && "Macros estimados pela IA"}
                     {state === "not_found" && "Tente novamente com melhor enquadramento"}
                     {state === "poor_quality" && "Ajuste luz e estabilidade"}
@@ -630,8 +646,11 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                       </div>
                     </div>
                     <div className="text-center space-y-1 w-full">
-                      <p className="font-semibold text-sm">IA Nutricional · GPT-4o Vision</p>
-                      <p className="text-xs text-muted-foreground animate-pulse">{SCAN_STEPS[scanStep]}</p>
+                      <p className="font-semibold text-sm">Analisando comida com IA</p>
+                      <p className="text-xs text-muted-foreground animate-pulse">
+                        {visionReady ? `Motor: ${visionModel ?? "GPT-4o"}` : "Conectando Vision..."} ·{" "}
+                        {SCAN_STEPS[scanStep]}
+                      </p>
                     </div>
                     <div className="w-full space-y-1.5">
                       {SCAN_STEPS.map((step, i) => (

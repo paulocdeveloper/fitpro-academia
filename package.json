@@ -39,6 +39,7 @@
     "validate:lighthouse": "node ./scripts/lighthouse-seo.mjs",
     "validate:permissions": "node ./scripts/validate-permissions.mjs",
     "validate:perfil-treino": "npx tsx scripts/validate-perfil-treino.mjs",
+    "validate:nutrition:vision": "npx tsx scripts/validate-nutrition-vision-local.mjs",
     "validate:premium": "node ./scripts/validate-premium.mjs",
     "db:fix-saas": "node ./scripts/fix-saas.mjs",
     "db:render-setup": "node ./scripts/bootstrap-db.mjs && node ./scripts/seed-master-user.mjs",

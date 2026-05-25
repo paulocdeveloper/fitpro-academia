@@ -107,8 +107,8 @@ export function FoodScannerResults({
   onRetry: () => void
   onClose: () => void
 }) {
-  const { totais, niveis, items, confianca_geral, qualidade_refeicao, resumo, engine, model } = analysis
-  const engineLabel = engine === "openai" ? (model ?? "GPT-4o Vision") : "Análise visual"
+  const { totais, niveis, items, confianca_geral, qualidade_refeicao, resumo, engine, model, warning } = analysis
+  const engineLabel = engine === "openai" ? (model ?? "GPT-4o Vision") : "Análise visual (offline)"
 
   return (
     <div className="space-y-4 max-h-[min(70vh,520px)] overflow-y-auto pr-1">
@@ -149,6 +149,7 @@ export function FoodScannerResults({
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               Qualidade nutricional: {QUALITY_LABEL[qualidade_refeicao]}
+              {warning ? ` · ${warning}` : ""}
             </p>
           </div>
           <div className="text-right shrink-0">
@@ -165,10 +166,11 @@ export function FoodScannerResults({
           <LevelPill label="Gordura" level={niveis.gordura} />
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <MacroBadge label="Proteinas" value={totais.proteinas_g} unit="g" color="oklch(0.7 0.22 145)" />
           <MacroBadge label="Carbos" value={totais.carboidratos_g} unit="g" color="oklch(0.75 0.18 80)" />
           <MacroBadge label="Gorduras" value={totais.gorduras_g} unit="g" color="oklch(0.65 0.2 200)" />
+          <MacroBadge label="Fibras" value={totais.fibras_g} unit="g" color="oklch(0.68 0.16 280)" />
         </div>
       </div>
 
