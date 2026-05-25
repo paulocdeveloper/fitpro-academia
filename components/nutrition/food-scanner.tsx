@@ -10,6 +10,14 @@ import {
   plateToScannedFood,
 } from "@/components/nutrition/food-scanner-results"
 import { captureFrameQuality, frameStabilityScore } from "@/lib/nutrition/client-image-quality"
+import {
+  applyContinuousFocus,
+  isGetUserMediaSupported,
+  queryCameraPermission,
+  requestCameraStream,
+  type CameraAccessFailure,
+  type CameraFacing,
+} from "@/lib/nutrition/camera-access"
 import type { MealAnalysisResult } from "@/lib/nutrition/types"
 
 export type ScannedFood = {
@@ -23,41 +31,8 @@ export type ScannedFood = {
 
 type ScannerState = "idle" | "camera" | "scanning" | "detected" | "not_found" | "poor_quality" | "manual"
 
-function buildCameraConstraints(facing: CameraFacing, allowFrontFallback: boolean): MediaStreamConstraints[] {
-  const videoAdvanced = {
-    facingMode: { ideal: facing },
-    width: { ideal: 1920, max: 1920 },
-    height: { ideal: 1080, max: 1080 },
-    // Autofocus contínuo (suportado em iPhone/Android modernos)
-    focusMode: { ideal: "continuous" },
-  } as MediaTrackConstraints
-
-  const list: MediaStreamConstraints[] = [
-    { audio: false, video: { ...videoAdvanced, facingMode: { exact: facing } } },
-    { audio: false, video: videoAdvanced },
-    {
-      audio: false,
-      video: {
-        facingMode: { ideal: facing },
-        focusMode: { ideal: "continuous" },
-      } as MediaTrackConstraints,
-    },
-    { audio: false, video: { facingMode: facing } },
-  ]
-
-  if (allowFrontFallback && facing === "environment") {
-    list.push(
-      { audio: false, video: { facingMode: { ideal: "user" } } },
-      { audio: false, video: true },
-    )
-  } else {
-    list.push({ audio: false, video: true })
-  }
-
-  return list
-}
-
-type CameraFacing = "environment" | "user"
+/** Fluxo de permissão — getUserMedia só após clique explícito (Safari/iPhone). */
+type CameraStatus = "need_permission" | "requesting" | "active" | "denied" | "error" | "unsupported"
 
 const SCAN_STEPS = [
   "Enviando foto do prato...",
@@ -81,6 +56,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
   const [manualCarbo100, setManualCarbo100] = useState("")
   const [manualGord100, setManualGord100] = useState("")
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [cameraStatus, setCameraStatus] = useState<CameraStatus>("need_permission")
   const [facingMode, setFacingMode] = useState<CameraFacing>("environment")
   const [visionReady, setVisionReady] = useState<boolean | null>(null)
   const [visionModel, setVisionModel] = useState<string | null>(null)
@@ -97,133 +73,73 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     }
   }, [])
 
-  function getCameraErrorMessage(e: unknown): string {
-    if (e == null) return "Não foi possível abrir a câmera."
-    const err = e as { name?: string; message?: string }
-    const name = typeof err?.name === "string" ? err.name : ""
-
-    // Bloqueios comuns: permissões, ausência de câmera, câmera em uso.
-    if (name === "NotAllowedError" || name === "SecurityError") {
-      return [
-        "Permissão negada para usar a câmera.",
-        "",
-        "iPhone (Safari): Ajustes → Safari → Câmera → Permitir. Ou toque em “Permitir” quando o navegador solicitar.",
-        "",
-        "Android (Chrome): toque em Permitir no pop-up. Se bloqueou antes: ícone de cadeado na barra → Câmera → Permitir.",
-        "",
-        "No Instagram/navegador interno: abra o link no Chrome ou Safari se a câmera não funcionar.",
-      ].join("\n")
-    }
-    if (name === "NotFoundError") {
-      return "Nenhuma câmera encontrada no dispositivo."
-    }
-    if (name === "NotReadableError" || name === "TrackStartError") {
-      return "Câmera indisponível (pode estar em uso por outro app). Feche outros apps que usam câmera e tente novamente."
-    }
-    if (name === "OverconstrainedError") {
-      return "Não foi possível usar a câmera traseira. Tentando outra câmera pode resolver."
-    }
-
-    // Requisito do navegador: precisa ser localhost ou HTTPS.
-    if (typeof window !== "undefined") {
-      const host = window.location.hostname
-      const okHost = host === "localhost" || host === "127.0.0.1" || host === "::1"
-      if (!window.isSecureContext && !okHost) {
-        return `O navegador bloqueou a câmera em HTTP (${host}). Use localhost/127.0.0.1 ou HTTPS.`
+  const attachStream = useCallback((stream: MediaStream) => {
+    streamRef.current = stream
+    let frames = 0
+    const tryAttach = () => {
+      const v = videoRef.current
+      if (v) {
+        v.srcObject = stream
+        const play = () => {
+          void v.play().catch(() => {})
+        }
+        if (v.readyState >= 1) play()
+        else v.addEventListener("loadedmetadata", play, { once: true })
+        return
       }
+      if (frames++ < 120) requestAnimationFrame(tryAttach)
     }
+    requestAnimationFrame(tryAttach)
+  }, [])
 
-    const msg = typeof err?.message === "string" ? err.message : ""
-    return msg ? `Não foi possível abrir a câmera. (${msg})` : "Não foi possível abrir a câmera."
-  }
-
-  /**
-   * getUserMedia deve ser chamado no mesmo fluxo síncrono do clique (sem await antes),
-   * para o navegador manter o gesto do usuário. Usamos .then() — sem flushSync: no
-   * Next/Turbopack, importar flushSync de react-dom pode ser resolvido para o pacote
-   * errado e virar "is not a function". React 18+ faz batch de setState vindos de Promises.
-   */
-  const startCamera = useCallback((preferredFacing?: CameraFacing) => {
-    const facing = preferredFacing ?? facingMode
-    if (preferredFacing) setFacingMode(preferredFacing)
-
+  /** Abre o modal sem getUserMedia (preserva gesto para o botão Permitir). */
+  const openScanner = useCallback(() => {
     stopCamera()
     setCameraError(null)
+    setCameraStatus(isGetUserMediaSupported() ? "need_permission" : "unsupported")
+    setQualityHint(null)
+    setState("camera")
+  }, [stopCamera])
 
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setState("camera")
-      setCameraError("Seu navegador não suporta acesso à câmera (getUserMedia).")
-      return
-    }
+  /** Dispara pop-up nativo — deve ser chamado direto no onClick. */
+  const requestCameraPermission = useCallback(
+    (preferredFacing?: CameraFacing) => {
+      const facing = preferredFacing ?? facingMode
+      if (preferredFacing) setFacingMode(preferredFacing)
 
-    if (typeof window !== "undefined") {
-      const host = window.location.hostname
-      const okHost = host === "localhost" || host === "127.0.0.1" || host === "::1"
-      if (!window.isSecureContext && !okHost) {
-        setState("camera")
-        setCameraError(`O navegador bloqueou a câmera em HTTP (${host}). Use localhost/127.0.0.1 ou HTTPS.`)
+      if (!isGetUserMediaSupported()) {
+        setCameraStatus("unsupported")
+        setCameraError("Seu navegador não suporta acesso à câmera.")
         return
       }
-    }
 
-    const attachStream = (stream: MediaStream) => {
-      streamRef.current = stream
-      const track = stream.getVideoTracks()[0]
-      if (track) {
-        void track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {})
-      }
-      let frames = 0
-      const tryAttach = () => {
-        const v = videoRef.current
-        if (v) {
-          v.srcObject = stream
-          const play = () => {
-            void v.play().catch(() => {})
-          }
-          if (v.readyState >= 1) play()
-          else v.addEventListener("loadedmetadata", play, { once: true })
-          return
+      stopCamera()
+      setCameraError(null)
+      setCameraStatus("requesting")
+
+      void (async () => {
+        try {
+          const stream = await requestCameraStream(facing)
+          await applyContinuousFocus(stream)
+          setCameraStatus("active")
+          attachStream(stream)
+        } catch (e) {
+          const failure = e as CameraAccessFailure
+          const kind = failure?.kind ?? "unknown"
+          setCameraStatus(
+            kind === "denied" ? "denied" : kind === "unsupported" ? "unsupported" : "error",
+          )
+          setCameraError(failure?.message ?? "Não foi possível abrir a câmera.")
         }
-        if (frames++ < 120) requestAnimationFrame(tryAttach)
-      }
-      requestAnimationFrame(tryAttach)
-    }
-
-    const openModalWithError = (e: unknown) => {
-      setState("camera")
-      setCameraError(getCameraErrorMessage(e))
-    }
-
-    const allowFrontFallback = facing === "environment"
-    const constraintsList = buildCameraConstraints(facing, allowFrontFallback)
-
-    const attempt = (index: number, lastError: unknown) => {
-      if (index >= constraintsList.length) {
-        openModalWithError(lastError)
-        return
-      }
-      try {
-        navigator.mediaDevices.getUserMedia(constraintsList[index]).then(
-          (stream) => {
-            setState("camera")
-            attachStream(stream)
-          },
-          (err) => {
-            attempt(index + 1, err)
-          }
-        )
-      } catch (err) {
-        attempt(index + 1, err)
-      }
-    }
-
-    attempt(0, null)
-  }, [stopCamera, facingMode])
+      })()
+    },
+    [attachStream, facingMode, stopCamera],
+  )
 
   const switchCamera = useCallback(() => {
     const next: CameraFacing = facingMode === "environment" ? "user" : "environment"
-    startCamera(next)
-  }, [facingMode, startCamera])
+    requestCameraPermission(next)
+  }, [facingMode, requestCameraPermission])
 
   const captureAndScan = async () => {
     const video = videoRef.current
@@ -387,6 +303,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     setAnalysis(null)
     setPreviewImage(null)
     setCameraError(null)
+    setCameraStatus("need_permission")
     setQualityHint(null)
     setStability(0)
     prevFrameRef.current = null
@@ -412,8 +329,29 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     }
   }, [state])
 
+  /** Se o usuário já autorizou antes, inicia câmera sem segundo clique. */
   useEffect(() => {
-    if (state !== "camera" || cameraError) return
+    if (state !== "camera" || cameraStatus !== "need_permission") return
+    let cancelled = false
+    void queryCameraPermission().then((perm) => {
+      if (cancelled) return
+      if (perm === "granted") requestCameraPermission()
+      else if (perm === "unsupported" || perm === "insecure") {
+        setCameraStatus("unsupported")
+        setCameraError(
+          perm === "insecure"
+            ? "Use HTTPS (produção Render) ou localhost para acessar a câmera."
+            : "Câmera não suportada neste navegador.",
+        )
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [state, cameraStatus, requestCameraPermission])
+
+  useEffect(() => {
+    if (state !== "camera" || cameraStatus !== "active") return
     let raf = 0
     if (!sampleCanvasRef.current && typeof document !== "undefined") {
       sampleCanvasRef.current = document.createElement("canvas")
@@ -440,7 +378,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [state, cameraError])
+  }, [state, cameraStatus])
 
   return (
     <>
@@ -449,7 +387,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
         size="sm"
         className="gap-2 text-xs font-semibold neon-glow"
         style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
-        onClick={() => startCamera("environment")}
+        onClick={openScanner}
       >
         <Camera className="w-3.5 h-3.5" />
         Escanear Comida
@@ -530,21 +468,63 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
               {/* CÂMERA */}
               {(state === "camera") && (
                 <div className="space-y-4">
-                  {cameraError ? (
+                  {cameraStatus !== "active" ? (
                     <div
-                      className="rounded-xl flex flex-col items-center justify-center gap-3 py-12 text-center"
+                      className="rounded-xl flex flex-col items-center justify-center gap-4 py-10 text-center px-4"
                       style={{ background: "var(--secondary)", border: "1px dashed var(--border)" }}
                     >
-                      <Camera className="w-10 h-10 text-muted-foreground" />
-                      <div>
-                        <p className="font-semibold text-sm">Câmera não disponível</p>
-                        <p className="text-xs text-muted-foreground mt-1 whitespace-pre-line text-left max-w-sm mx-auto">
-                          {cameraError}
-                        </p>
-                      </div>
-                      <Button size="sm" variant="outline" onClick={() => startCamera("environment")} className="gap-1.5 mt-1">
-                        <RefreshCw className="w-3.5 h-3.5" /> Tentar novamente
-                      </Button>
+                      {cameraStatus === "requesting" ? (
+                        <>
+                          <div
+                            className="w-12 h-12 rounded-full border-2 animate-spin"
+                            style={{ borderColor: "var(--border)", borderTopColor: "var(--primary)" }}
+                          />
+                          <p className="font-semibold text-sm">Solicitando acesso à câmera…</p>
+                          <p className="text-xs text-muted-foreground max-w-xs">
+                            Aceite o pop-up do navegador quando aparecer.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <Camera className="w-10 h-10 text-muted-foreground" />
+                          <div>
+                            <p className="font-semibold text-sm">
+                              {cameraStatus === "denied" || cameraStatus === "error"
+                                ? "Não foi possível usar a câmera"
+                                : cameraStatus === "unsupported"
+                                  ? "Câmera indisponível"
+                                  : "Permita o acesso à câmera"}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
+                              {cameraError ??
+                                (cameraStatus === "need_permission"
+                                  ? "Toque no botão abaixo. O navegador abrirá o pedido de permissão (como Instagram ou WhatsApp)."
+                                  : "Tente novamente.")}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="gap-2 font-semibold neon-glow"
+                            style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
+                            onClick={() => requestCameraPermission("environment")}
+                          >
+                            <Camera className="w-4 h-4" />
+                            Permitir câmera
+                          </Button>
+                          {(cameraStatus === "denied" || cameraStatus === "error") && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => requestCameraPermission("environment")}
+                              className="gap-1.5"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" /> Tentar novamente
+                            </Button>
+                          )}
+                        </>
+                      )}
                     </div>
                   ) : (
                     <div className="relative rounded-xl overflow-hidden aspect-video bg-black">
@@ -615,7 +595,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                     className="w-full gap-2 font-semibold neon-glow"
                     style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
                     onClick={captureAndScan}
-                    disabled={!!cameraError || stability < 0.55}
+                    disabled={cameraStatus !== "active" || stability < 0.55}
                   >
                     <Zap className="w-4 h-4" />
                     Capturar e Analisar
@@ -684,7 +664,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                   onRetry={() => {
                     setAnalysis(null)
                     setPreviewImage(null)
-                    startCamera("environment")
+                    openScanner()
                   }}
                   onClose={handleClose}
                 />
@@ -725,7 +705,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                       className="flex-1 gap-2"
                       onClick={() => {
                         setQualityHint(null)
-                        startCamera("environment")
+                        openScanner()
                       }}
                     >
                       <RefreshCw className="w-4 h-4" />
@@ -820,7 +800,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                     </div>
                     <div>
                       <div className="h-full flex items-end">
-                        <Button variant="outline" className="w-full gap-2" onClick={() => startCamera()}>
+                        <Button variant="outline" className="w-full gap-2" onClick={openScanner}>
                           <Camera className="w-4 h-4" /> Voltar
                         </Button>
                       </div>
