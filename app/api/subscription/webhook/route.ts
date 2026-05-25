@@ -1,22 +1,90 @@
 import { NextResponse } from "next/server"
+import { getMercadoPagoWebhookSecret, isMercadoPagoConfigured } from "@/lib/mercadopago/config"
+import {
+  syncMercadoPagoAuthorizedPayment,
+  syncMercadoPagoPreapproval,
+} from "@/lib/premium/mercadopago-sync"
+import {
+  verifyMercadoPagoWebhookSignature,
+  type MercadoPagoWebhookPayload,
+} from "@/lib/mercadopago/webhook"
 
-/**
- * Webhook Stripe / Mercado Pago (placeholder).
- * Configure STRIPE_WEBHOOK_SECRET ou MERCADOPAGO_WEBHOOK_SECRET no Render.
- */
+async function processNotification(type: string | null, dataId: string | null) {
+  if (!dataId || !isMercadoPagoConfigured()) return
+
+  if (type === "subscription_preapproval" || type === "preapproval") {
+    await syncMercadoPagoPreapproval(dataId)
+    return
+  }
+
+  if (type === "subscription_authorized_payment" || type === "authorized_payment") {
+    await syncMercadoPagoAuthorizedPayment(dataId)
+    return
+  }
+
+  if (type === "payment") {
+    await syncMercadoPagoAuthorizedPayment(dataId)
+  }
+}
+
+function extractDataId(payload: MercadoPagoWebhookPayload, url: URL): string | null {
+  return payload.data?.id ?? url.searchParams.get("data.id") ?? url.searchParams.get("id")
+}
+
+function extractType(payload: MercadoPagoWebhookPayload, url: URL): string | null {
+  return payload.type ?? url.searchParams.get("type") ?? url.searchParams.get("topic")
+}
+
 export async function POST(req: Request) {
-  const provider = req.headers.get("x-fitpro-provider") ?? "unknown"
+  const url = new URL(req.url)
+  let payload: MercadoPagoWebhookPayload = {}
 
-  if (provider === "stripe" && process.env.STRIPE_WEBHOOK_SECRET?.trim()) {
-    return NextResponse.json({ ok: false, error: "Handler Stripe pendente." }, { status: 501 })
+  try {
+    const text = await req.text()
+    if (text) payload = JSON.parse(text) as MercadoPagoWebhookPayload
+  } catch {
+    /* body vazio */
   }
 
-  if (provider === "mercadopago" && process.env.MERCADOPAGO_WEBHOOK_SECRET?.trim()) {
-    return NextResponse.json({ ok: false, error: "Handler Mercado Pago pendente." }, { status: 501 })
+  const dataId = extractDataId(payload, url)
+  const type = extractType(payload, url)
+
+  if (getMercadoPagoWebhookSecret()) {
+    if (!verifyMercadoPagoWebhookSignature(req, dataId)) {
+      console.warn("webhook MP: assinatura inválida", { type, dataId })
+      return NextResponse.json({ error: "Assinatura inválida." }, { status: 401 })
+    }
+  } else if (process.env.NODE_ENV === "production") {
+    console.warn("webhook MP: MERCADOPAGO_WEBHOOK_SECRET ausente em produção")
+    return NextResponse.json({ error: "Webhook secret não configurado." }, { status: 503 })
   }
 
-  return NextResponse.json(
-    { error: "Webhook não configurado. Use checkout mock em desenvolvimento." },
-    { status: 501 },
-  )
+  try {
+    await processNotification(type, dataId)
+  } catch (e) {
+    console.error("webhook MP process", e)
+  }
+
+  return NextResponse.json({ ok: true }, { status: 200 })
+}
+
+/** IPN legado (query string). */
+export async function GET(req: Request) {
+  const url = new URL(req.url)
+  const dataId = url.searchParams.get("data.id") ?? url.searchParams.get("id")
+  const type = url.searchParams.get("type") ?? url.searchParams.get("topic")
+
+  if (getMercadoPagoWebhookSecret() && dataId) {
+    if (!verifyMercadoPagoWebhookSignature(req, dataId)) {
+      return NextResponse.json({ error: "Assinatura inválida." }, { status: 401 })
+    }
+  }
+
+  try {
+    await processNotification(type, dataId)
+  } catch (e) {
+    console.error("webhook MP GET", e)
+  }
+
+  return NextResponse.json({ ok: true }, { status: 200 })
 }

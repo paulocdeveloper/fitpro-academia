@@ -35,6 +35,7 @@ export async function GET(req: Request) {
       subscriptionStatus: subscription.subscriptionStatus,
       planType: subscription.planType,
       premiumExpiresAt: subscription.premiumExpiresAt,
+      paymentStatus: subscription.paymentStatus,
     },
   })
 }

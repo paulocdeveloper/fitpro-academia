@@ -2,13 +2,27 @@ export type SubscriptionStatus = "free" | "premium" | "expired" | "cancelled"
 
 export type PlanType = "free" | "premium_nutrition"
 
-export type PaymentProvider = "mock" | "stripe" | "mercadopago"
+export type PaymentProvider = "mock" | "stripe" | "mercadopago" | null
+
+/** Status do pagamento no gateway (Mercado Pago preapproval). */
+export type PaymentStatus =
+  | "none"
+  | "pending"
+  | "authorized"
+  | "paused"
+  | "cancelled"
+  | "rejected"
 
 export type UserSubscription = {
   subscriptionStatus: SubscriptionStatus
   planType: PlanType
   premiumExpiresAt: string | null
   isPremium: boolean
+  paymentProvider: PaymentProvider
+  subscriptionId: string | null
+  paymentStatus: PaymentStatus
+  nextBillingAt: string | null
+  canCancel: boolean
 }
 
 export const PREMIUM_PLAN = {

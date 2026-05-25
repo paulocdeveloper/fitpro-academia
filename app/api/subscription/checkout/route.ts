@@ -1,19 +1,20 @@
 import { NextResponse } from "next/server"
 import { requireAuth } from "@/lib/api/require-auth"
 import { isUsuarioRole } from "@/lib/auth/roles"
-import { signSessionToken } from "@/lib/auth/session-token"
-import { AUTH_COOKIE } from "@/lib/auth/session"
-import { activatePremiumSubscription, loadUserSubscription } from "@/lib/premium/subscription"
+import { MercadoPagoApiError } from "@/lib/mercadopago/client"
+import { isMercadoPagoConfigured } from "@/lib/mercadopago/config"
+import { createPendingPreapproval } from "@/lib/mercadopago/preapproval"
+import { setUserPaymentPending } from "@/lib/premium/subscription-store"
+import {
+  activatePremiumSubscriptionMock,
+  loadUserSubscription,
+} from "@/lib/premium/subscription"
 import { PREMIUM_PLAN } from "@/lib/premium/types"
 
 type Body = {
-  provider?: "mock" | "stripe" | "mercadopago"
+  provider?: "mock" | "mercadopago"
 }
 
-/**
- * Checkout Premium — estrutura pronta para Stripe / Mercado Pago.
- * Sem chaves de gateway: ativa assinatura mock (30 dias) para validação.
- */
 export async function POST(req: Request) {
   const auth = await requireAuth(req)
   if (!auth.ok) return auth.response
@@ -32,58 +33,79 @@ export async function POST(req: Request) {
     /* body opcional */
   }
 
-  const provider = body.provider ?? "mock"
-  const hasStripe = Boolean(process.env.STRIPE_SECRET_KEY?.trim())
-  const hasMp = Boolean(process.env.MERCADOPAGO_ACCESS_TOKEN?.trim())
+  const useMock =
+    body.provider === "mock" ||
+    (process.env.MERCADOPAGO_USE_MOCK === "true" && !isMercadoPagoConfigured())
 
-  if (provider === "stripe" && hasStripe) {
-    return NextResponse.json({
-      ok: false,
-      error: "Integração Stripe em configuração. Use provider mock em desenvolvimento.",
-      code: "STRIPE_PENDING",
+  if (useMock && process.env.NODE_ENV !== "production") {
+    const subscription = await activatePremiumSubscriptionMock(
+      auth.session.userId,
+      auth.session.academiaId,
+    )
+    const { signSessionToken } = await import("@/lib/auth/session-token")
+    const { AUTH_COOKIE } = await import("@/lib/auth/session")
+    const token = await signSessionToken({
+      userId: auth.session.userId,
+      role: auth.session.role,
+      email: auth.session.email,
+      academiaId: auth.session.academiaId,
+    })
+    const res = NextResponse.json({
+      ok: true,
+      activated: true,
+      provider: "mock",
+      subscription,
       plan: PREMIUM_PLAN,
-    }, { status: 501 })
+    })
+    res.cookies.set(AUTH_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    })
+    return res
   }
 
-  if (provider === "mercadopago" && hasMp) {
-    return NextResponse.json({
-      ok: false,
-      error: "Integração Mercado Pago em configuração. Use provider mock em desenvolvimento.",
-      code: "MP_PENDING",
-      plan: PREMIUM_PLAN,
-    }, { status: 501 })
+  if (!isMercadoPagoConfigured()) {
+    return NextResponse.json(
+      {
+        error: "Pagamento não configurado. Defina MERCADOPAGO_ACCESS_TOKEN no servidor.",
+        code: "MP_NOT_CONFIGURED",
+      },
+      { status: 503 },
+    )
   }
 
-  await activatePremiumSubscription(
-    auth.session.userId,
-    auth.session.academiaId,
-    "mock",
-    `mock_${Date.now()}`,
-  )
+  try {
+    const { preapprovalId, checkoutUrl } = await createPendingPreapproval({
+      userId: auth.session.userId,
+      academiaId: auth.session.academiaId,
+      payerEmail: auth.session.email,
+    })
 
-  const token = await signSessionToken({
-    userId: auth.session.userId,
-    role: auth.session.role,
-    email: auth.session.email,
-    academiaId: auth.session.academiaId,
-  })
+    await setUserPaymentPending({
+      userId: auth.session.userId,
+      subscriptionId: preapprovalId,
+      paymentStatus: "pending",
+    })
 
-  const res = NextResponse.json({
-    ok: true,
-    activated: true,
-    provider: "mock",
-    subscription: await loadUserSubscription(auth.session.userId, auth.session.role),
-    plan: PREMIUM_PLAN,
-    message: "Premium ativado por 30 dias. Em produção, o pagamento será via Stripe ou Mercado Pago.",
-  })
-
-  res.cookies.set(AUTH_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7,
-  })
-
-  return res
+    return NextResponse.json({
+      ok: true,
+      provider: "mercadopago",
+      checkoutUrl,
+      preapprovalId,
+      plan: PREMIUM_PLAN,
+      subscription: await loadUserSubscription(auth.session.userId, auth.session.role),
+    })
+  } catch (e) {
+    console.error("POST /api/subscription/checkout", e)
+    if (e instanceof MercadoPagoApiError) {
+      return NextResponse.json(
+        { error: e.message, code: "MP_CHECKOUT_ERROR", details: e.body },
+        { status: e.status >= 400 && e.status < 600 ? e.status : 502 },
+      )
+    }
+    return NextResponse.json({ error: "Falha ao iniciar checkout Mercado Pago." }, { status: 500 })
+  }
 }

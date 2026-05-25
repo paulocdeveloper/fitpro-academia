@@ -81,7 +81,15 @@ export function PerfilFitnessView() {
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">Conta</p>
             {!userLoading && (
-              <PremiumBadge variant={user?.isPremium ? "premium" : "free"} />
+              <PremiumBadge
+                variant={
+                  user?.isPremium
+                    ? "premium"
+                    : user?.subscriptionStatus === "expired"
+                      ? "expired"
+                      : "free"
+                }
+              />
             )}
           </div>
           <p className="font-semibold">{userLoading ? "…" : user?.displayName}</p>

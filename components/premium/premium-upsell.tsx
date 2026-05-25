@@ -2,13 +2,11 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { Sparkles, Salad, ScanLine, Brain, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { PREMIUM_PLAN } from "@/lib/premium/types"
 
 export function PremiumUpsell() {
-  const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -20,15 +18,22 @@ export function PremiumUpsell() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: "mock" }),
+        body: JSON.stringify({ provider: "mercadopago" }),
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error ?? "Não foi possível ativar o Premium.")
+        setError(data.error ?? "Não foi possível iniciar o pagamento.")
         return
       }
-      router.push("/dietas")
-      router.refresh()
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl as string
+        return
+      }
+      if (data.activated) {
+        window.location.href = "/dietas"
+        return
+      }
+      setError("Resposta de checkout inválida.")
     } catch {
       setError("Erro de conexão.")
     } finally {
@@ -102,7 +107,8 @@ export function PremiumUpsell() {
         </Button>
 
         <p className="text-xs text-muted-foreground">
-          Pagamento via Stripe ou Mercado Pago em breve. Ambiente de teste ativa 30 dias automaticamente.
+          Pagamento seguro via Mercado Pago. Renovação automática mensal — cancele quando quiser em
+          Minha assinatura.
         </p>
 
         <Link href="/treino-inteligente" className="text-sm text-muted-foreground hover:underline inline-block">

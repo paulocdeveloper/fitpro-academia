@@ -9,6 +9,10 @@ export function ensurePremiumSchema(): Promise<void> {
         "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(20) DEFAULT 'free'",
         "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS premium_expires_at TIMESTAMPTZ",
         "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS plan_type VARCHAR(40) DEFAULT 'free'",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS payment_provider VARCHAR(20)",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS subscription_id VARCHAR(64)",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) DEFAULT 'none'",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS next_billing_at TIMESTAMPTZ",
       ]
       for (const sql of alters) {
         try {
@@ -25,9 +29,10 @@ export function ensurePremiumSchema(): Promise<void> {
             academia_id INTEGER NOT NULL REFERENCES academias(id) ON DELETE CASCADE,
             plan_type VARCHAR(40) NOT NULL DEFAULT 'premium_nutrition',
             status VARCHAR(20) NOT NULL DEFAULT 'active',
+            payment_status VARCHAR(30),
             amount_cents INTEGER NOT NULL DEFAULT 1090,
             currency VARCHAR(3) NOT NULL DEFAULT 'BRL',
-            provider VARCHAR(20) NOT NULL DEFAULT 'mock',
+            provider VARCHAR(20) NOT NULL DEFAULT 'mercadopago',
             external_id VARCHAR(255),
             started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             expires_at TIMESTAMPTZ NOT NULL,
@@ -38,6 +43,13 @@ export function ensurePremiumSchema(): Promise<void> {
         await query(
           `CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions (user_id, expires_at DESC)`,
         )
+        try {
+          await query(
+            "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30)",
+          )
+        } catch {
+          /* ok */
+        }
       } catch {
         /* ignore */
       }
