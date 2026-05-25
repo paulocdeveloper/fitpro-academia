@@ -57,9 +57,17 @@ export async function salvarPerfilTreinoApi(
   logPerfilSubmit("response", { status: res.status, ok: res.ok, fieldErrors: data.fieldErrors })
 
   if (!res.ok) {
+    const detail =
+      data && typeof data === "object" && "detail" in data && typeof data.detail === "string"
+        ? data.detail
+        : undefined
     const msg =
-      data.error ?? Object.values(data.fieldErrors ?? {})[0] ?? "Não foi possível salvar o perfil."
-    throw new PerfilSaveError(msg, data.fieldErrors ?? {})
+      data.error ??
+      Object.values(data.fieldErrors ?? {})[0] ??
+      (res.status === 503
+        ? "Servidor em manutenção. Tente em alguns minutos."
+        : "Não foi possível salvar o perfil.")
+    throw new PerfilSaveError(detail ? `${msg}` : msg, data.fieldErrors ?? {})
   }
 
   return {

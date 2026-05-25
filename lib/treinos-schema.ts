@@ -207,9 +207,14 @@ export function buildTreinosDeleteSql(m: TreinosColumnMap): string {
   return `DELETE FROM ${tn} ${w}`
 }
 
-/** Referência qualificada à coluna dono (para WHERE). */
+/** Referência qualificada à coluna dono (SELECT com alias `t`). */
 export function treinosOwnerRef(m: TreinosColumnMap): string {
   return `t.${q(m.userId)}`
+}
+
+/** Coluna dono sem alias (UPDATE/DELETE). */
+export function treinosOwnerColumn(m: TreinosColumnMap): string {
+  return q(m.userId)
 }
 
 /** SELECT mínimo para RBAC antes de DELETE (inclui academia_id se existir). */

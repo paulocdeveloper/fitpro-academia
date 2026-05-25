@@ -1,7 +1,10 @@
 import { query, insertRow } from "@/lib/db"
+import { resolveDbConfig } from "@/lib/db-config"
+import { quoteIdent } from "@/lib/db-dialect"
+import { isMissingColumn } from "@/lib/db-errors"
 import type { JwtPayloadUser } from "@/lib/auth/jwt"
 import type { PerfilTreinoInteligente } from "@/lib/treino-inteligente/generator"
-import { normalizePerfil } from "@/lib/treino-inteligente/perfil-schema"
+import { normalizeGorduraOpcional, normalizePerfil } from "@/lib/treino-inteligente/perfil-schema"
 
 export type AlunoRecord = {
   id: number
@@ -20,6 +23,25 @@ export type AlunoRecord = {
 }
 
 let schemaReady: Promise<void> | null = null
+let alunosColumnsCache: Map<string, string> | null = null
+
+function sqlFiniteNumber(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  if (!Number.isFinite(value)) return null
+  return value
+}
+
+async function loadAlunosColumnMap(): Promise<Map<string, string>> {
+  if (alunosColumnsCache) return alunosColumnsCache
+  const schema = resolveDbConfig().schema
+  const cols = await query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = ? AND LOWER(table_name) = 'alunos'`,
+    [schema],
+  )
+  alunosColumnsCache = new Map(cols.map((c) => [c.column_name.toLowerCase(), c.column_name]))
+  return alunosColumnsCache
+}
 
 export function ensureTreinoInteligenteSchema(): Promise<void> {
   if (!schemaReady) {
@@ -36,10 +58,11 @@ export function ensureTreinoInteligenteSchema(): Promise<void> {
       for (const sql of alters) {
         try {
           await query(sql)
-        } catch {
-          /* coluna já existe */
+        } catch (e) {
+          console.warn("[aluno-record] alter skip:", e instanceof Error ? e.message : e)
         }
       }
+      alunosColumnsCache = null
       try {
         await query(`
           CREATE TABLE IF NOT EXISTS treino_inteligente_historico (
@@ -52,8 +75,8 @@ export function ensureTreinoInteligenteSchema(): Promise<void> {
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
           )
         `)
-      } catch {
-        /* ignore */
+      } catch (e) {
+        console.warn("[aluno-record] historico table:", e instanceof Error ? e.message : e)
       }
     })()
   }
@@ -78,10 +101,13 @@ export async function resolveAlunoForUser(session: JwtPayloadUser): Promise<Alun
       [session.academiaId, email],
     )
     if (byEmail[0]) {
-      try {
-        await query(`UPDATE alunos SET usuario_id = ? WHERE id = ?`, [session.userId, byEmail[0].id])
-      } catch {
-        /* coluna ausente */
+      const cols = await loadAlunosColumnMap()
+      if (cols.has("usuario_id")) {
+        try {
+          await query(`UPDATE alunos SET usuario_id = ? WHERE id = ?`, [session.userId, byEmail[0].id])
+        } catch {
+          /* ignore */
+        }
       }
       return { ...byEmail[0], usuario_id: session.userId }
     }
@@ -122,32 +148,48 @@ export function alunoToPerfil(aluno: AlunoRecord): PerfilTreinoInteligente {
   })
 }
 
+const PERFIL_COLUMN_MAP: Record<string, (p: PerfilTreinoInteligente) => unknown> = {
+  peso: (p) => sqlFiniteNumber(p.peso_kg),
+  altura: (p) => sqlFiniteNumber(p.altura_cm),
+  idade: (p) => sqlFiniteNumber(p.idade),
+  sexo: (p) => p.sexo,
+  objetivo: (p) => p.objetivo,
+  nivel: (p) => p.nivel,
+  frequencia_semanal: (p) => sqlFiniteNumber(p.frequencia_semanal),
+  limitacoes: (p) => p.limitacoes ?? null,
+  percentual_gordura: (p) => normalizeGorduraOpcional(p.percentual_gordura),
+}
+
 export async function saveAlunoPerfil(alunoId: number, perfil: PerfilTreinoInteligente) {
+  await ensureTreinoInteligenteSchema()
   const p = normalizePerfil(perfil)
-  await query(
-    `UPDATE alunos SET
-      peso = ?,
-      altura = ?,
-      idade = ?,
-      sexo = ?,
-      objetivo = ?,
-      nivel = ?,
-      frequencia_semanal = ?,
-      limitacoes = ?,
-      percentual_gordura = ?,
-      updated_at = now()
-     WHERE id = ?`,
-    [
-      p.peso_kg,
-      p.altura_cm,
-      p.idade,
-      p.sexo,
-      p.objetivo,
-      p.nivel,
-      p.frequencia_semanal,
-      p.limitacoes,
-      p.percentual_gordura,
-      alunoId,
-    ],
-  )
+  const cols = await loadAlunosColumnMap()
+
+  const sets: string[] = []
+  const params: unknown[] = []
+
+  for (const [field, getter] of Object.entries(PERFIL_COLUMN_MAP)) {
+    const actual = cols.get(field)
+    if (!actual) continue
+    sets.push(`${quoteIdent(actual, "postgres")} = ?`)
+    params.push(getter(p))
+  }
+
+  if (sets.length === 0) {
+    throw new Error("Tabela alunos sem colunas de perfil. Execute npm run db:bootstrap")
+  }
+
+  params.push(alunoId)
+  const sql = `UPDATE alunos SET ${sets.join(", ")} WHERE id = ?`
+
+  try {
+    await query(sql, params)
+  } catch (e) {
+    if (isMissingColumn(e)) {
+      alunosColumnsCache = null
+      await ensureTreinoInteligenteSchema()
+      throw e
+    }
+    throw e
+  }
 }

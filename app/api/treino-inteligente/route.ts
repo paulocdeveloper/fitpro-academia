@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { requireAuth } from "@/lib/api/require-auth"
 import { isFitnessRole, isStaffRole } from "@/lib/auth/roles"
-import { insertRow, query } from "@/lib/db"
+import { query } from "@/lib/db"
+import { mapDbConnectionError } from "@/lib/db-errors"
 import {
   alunoToPerfil,
   resolveAlunoForUser,
@@ -9,76 +10,38 @@ import {
 } from "@/lib/treino-inteligente/aluno-record"
 import { gerarTreinoInteligente } from "@/lib/treino-inteligente/generator"
 import {
+  fetchTreinoInteligenteGerado,
+  persistTreinoInteligente,
+} from "@/lib/treino-inteligente/persist-treino"
+import {
   coercePerfilBody,
   normalizePerfil,
   validatePerfilPut,
 } from "@/lib/treino-inteligente/perfil-schema"
-import { mapDbConnectionError } from "@/lib/db-errors"
-import {
-  buildTreinosInsertSql,
-  buildTreinosSelectSql,
-  resolveTreinosColumnMap,
-  treinosAcademiaPredicate,
-  treinosOwnerRef,
-} from "@/lib/treinos-schema"
 
-const CATEGORIA_INTELIGENTE = "inteligente"
-
-async function loadTreinoInteligente(userId: number, academiaId: number) {
-  const map = await resolveTreinosColumnMap()
-  const base = buildTreinosSelectSql(map)
-  const acPred = treinosAcademiaPredicate(map, "t")
-  const owner = treinosOwnerRef(map)
-  const params: unknown[] = acPred ? [academiaId, userId] : [userId]
-  const sql = acPred
-    ? `${base} WHERE ${acPred} AND ${owner} = ? AND t.categoria = ? ORDER BY t.id DESC LIMIT 1`
-    : `${base} WHERE ${owner} = ? AND t.categoria = ? ORDER BY t.id DESC LIMIT 1`
-  params.push(CATEGORIA_INTELIGENTE)
-  const rows = await query<{ exercicios: string; id: number }>(sql, params)
-  if (!rows[0]?.exercicios) return null
-  try {
-    return JSON.parse(String(rows[0].exercicios)) as ReturnType<typeof gerarTreinoInteligente>
-  } catch {
-    return null
-  }
+function logPut(step: string, data: Record<string, unknown>) {
+  console.info(`[treino-inteligente:PUT:${step}]`, data)
 }
 
-async function persistTreinoInteligente(
-  userId: number,
-  academiaId: number,
-  payload: ReturnType<typeof gerarTreinoInteligente>,
-) {
-  const map = await resolveTreinosColumnMap()
-  const existing = await loadTreinoInteligente(userId, academiaId)
-  const json = JSON.stringify(payload)
+function formatPutError(e: unknown): { status: number; error: string; detail?: string } {
+  const mapped = mapDbConnectionError(e)
+  if (mapped) return mapped
 
-  if (existing) {
-    const acPred = treinosAcademiaPredicate(map, "t")
-    const owner = treinosOwnerRef(map)
-    const params: unknown[] = [json, userId]
-    let sql = `UPDATE treinos SET exercicios = ?, updated_at = now() WHERE ${owner} = ? AND categoria = ?`
-    params.push(CATEGORIA_INTELIGENTE)
-    if (acPred) {
-      sql += ` AND academia_id = ?`
-      params.push(academiaId)
+  const msg = e instanceof Error ? e.message : String(e)
+  const code = typeof e === "object" && e !== null ? (e as { code?: string }).code : undefined
+
+  if (code === "42703" || /column.*does not exist/i.test(msg)) {
+    return {
+      status: 503,
+      error: "Banco desatualizado. Execute npm run db:bootstrap no servidor.",
     }
-    await query(sql, params)
-  } else {
-    const insertSql = buildTreinosInsertSql(map)
-    const insertParams: unknown[] = [academiaId, userId, "Treino Inteligente"]
-    if (map.categoria) insertParams.push(CATEGORIA_INTELIGENTE)
-    if (map.status) insertParams.push("ativo")
-    if (map.exercicios) insertParams.push(json)
-    await insertRow(insertSql, insertParams)
   }
 
-  await insertRow(
-    `INSERT INTO treino_inteligente_historico (user_id, academia_id, imc, progresso_pct, payload)
-     VALUES (?, ?, ?, ?, ?)`,
-    [userId, academiaId, payload.imc, payload.progresso_pct, json],
-  ).catch(() => {
-    /* tabela pode não existir ainda */
-  })
+  return {
+    status: 500,
+    error: "Não foi possível salvar o perfil. Tente novamente.",
+    detail: process.env.NODE_ENV === "production" ? undefined : msg,
+  }
 }
 
 export async function GET(req: Request) {
@@ -98,7 +61,7 @@ export async function GET(req: Request) {
   }
 
   const perfil = normalizePerfil(alunoToPerfil(aluno))
-  let treino = await loadTreinoInteligente(auth.session.userId, auth.session.academiaId)
+  let treino = await fetchTreinoInteligenteGerado(auth.session.userId, auth.session.academiaId)
 
   if (!treino) {
     treino = gerarTreinoInteligente(perfil, 1, 0)
@@ -130,6 +93,13 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 })
   }
 
+  const sessionCtx = {
+    userId: auth.session.userId,
+    role: auth.session.role,
+    academiaId: auth.session.academiaId,
+    email: auth.session.email ?? null,
+  }
+
   let raw: unknown
   try {
     raw = await req.json()
@@ -137,47 +107,61 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "JSON inválido." }, { status: 400 })
   }
 
-  const coerced = coercePerfilBody(raw)
-  console.info("[perfil-submit:api]", {
-    peso_kg: coerced.peso_kg,
-    altura_cm: coerced.altura_cm,
-    idade: coerced.idade,
-    frequencia_semanal: coerced.frequencia_semanal,
-    sexo: coerced.sexo,
-    objetivo: coerced.objetivo,
-    percentual_gordura: coerced.percentual_gordura,
-  })
+  logPut("body", { ...sessionCtx, body: coercePerfilBody(raw) })
 
+  const coerced = coercePerfilBody(raw)
   const validated = validatePerfilPut(coerced)
   if (!validated.ok) {
-    console.info("[perfil-submit:api] validation-failed", validated.fieldErrors)
+    logPut("validation-failed", { fieldErrors: validated.fieldErrors })
     return NextResponse.json(
       { error: validated.error, fieldErrors: validated.fieldErrors },
       { status: 400 },
     )
   }
 
-  const aluno = await resolveAlunoForUser(auth.session)
-  if (!aluno) return NextResponse.json({ error: "Aluno não encontrado." }, { status: 404 })
+  logPut("payload", { ...sessionCtx, payload: validated.data })
 
   try {
+    const aluno = await resolveAlunoForUser(auth.session)
+    if (!aluno) {
+      logPut("aluno-not-found", sessionCtx)
+      return NextResponse.json({ error: "Aluno não encontrado." }, { status: 404 })
+    }
+
+    logPut("aluno", { alunoId: aluno.id, nome: aluno.nome })
+
     await saveAlunoPerfil(aluno.id, validated.data)
+    logPut("perfil-saved", { alunoId: aluno.id })
+
+    const updated = await resolveAlunoForUser(auth.session)
+    if (!updated) {
+      return NextResponse.json({ error: "Perfil salvo mas não foi possível recarregar." }, { status: 500 })
+    }
+
+    const perfil = normalizePerfil(alunoToPerfil(updated))
+    const prev = await fetchTreinoInteligenteGerado(auth.session.userId, auth.session.academiaId)
+    const progresso = prev?.progresso_pct ?? 0
+    const treino = gerarTreinoInteligente(perfil, (prev?.versao ?? 0) + 1, progresso)
+
+    logPut("treino-generated", { versao: treino.versao, dias: treino.dias.length })
+
+    await persistTreinoInteligente(auth.session.userId, auth.session.academiaId, treino)
+    logPut("ok", { alunoId: aluno.id, versao: treino.versao })
+
+    return NextResponse.json({ ok: true, perfil, treino })
   } catch (e) {
-    const mapped = mapDbConnectionError(e)
-    if (mapped) return NextResponse.json({ error: mapped.error }, { status: mapped.status })
-    console.error("[treino-inteligente PUT]", e)
-    return NextResponse.json({ error: "Não foi possível salvar o perfil." }, { status: 500 })
+    const formatted = formatPutError(e)
+    console.error("[treino-inteligente:PUT:error]", {
+      ...sessionCtx,
+      message: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined,
+      pgCode: typeof e === "object" && e !== null ? (e as { code?: string }).code : undefined,
+    })
+    return NextResponse.json(
+      { error: formatted.error, detail: formatted.detail },
+      { status: formatted.status },
+    )
   }
-
-  const updated = await resolveAlunoForUser(auth.session)
-  const perfil = normalizePerfil(alunoToPerfil(updated!))
-
-  const prev = await loadTreinoInteligente(auth.session.userId, auth.session.academiaId)
-  const progresso = prev?.progresso_pct ?? 0
-  const treino = gerarTreinoInteligente(perfil, (prev?.versao ?? 0) + 1, progresso)
-  await persistTreinoInteligente(auth.session.userId, auth.session.academiaId, treino)
-
-  return NextResponse.json({ ok: true, perfil, treino })
 }
 
 export async function POST(req: Request) {
@@ -190,13 +174,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 })
   }
 
-  const aluno = await resolveAlunoForUser(auth.session)
-  if (!aluno) return NextResponse.json({ error: "Aluno não encontrado." }, { status: 404 })
+  try {
+    const aluno = await resolveAlunoForUser(auth.session)
+    if (!aluno) return NextResponse.json({ error: "Aluno não encontrado." }, { status: 404 })
 
-  const perfil = alunoToPerfil(aluno)
-  const prev = await loadTreinoInteligente(auth.session.userId, auth.session.academiaId)
-  const treino = gerarTreinoInteligente(perfil, (prev?.versao ?? 0) + 1, prev?.progresso_pct ?? 0)
-  await persistTreinoInteligente(auth.session.userId, auth.session.academiaId, treino)
+    const perfil = alunoToPerfil(aluno)
+    const prev = await fetchTreinoInteligenteGerado(auth.session.userId, auth.session.academiaId)
+    const treino = gerarTreinoInteligente(perfil, (prev?.versao ?? 0) + 1, prev?.progresso_pct ?? 0)
+    await persistTreinoInteligente(auth.session.userId, auth.session.academiaId, treino)
 
-  return NextResponse.json({ ok: true, treino })
+    return NextResponse.json({ ok: true, treino })
+  } catch (e) {
+    const formatted = formatPutError(e)
+    console.error("[treino-inteligente:POST:error]", e)
+    return NextResponse.json({ error: formatted.error }, { status: formatted.status })
+  }
 }
