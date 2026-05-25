@@ -1,20 +1,16 @@
 "use client"
 
-import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Navbar } from "@/components/layout/navbar"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { PerfilTreinoForm } from "@/components/treino-inteligente/perfil-treino-form"
+import {
+  friendlyFetchError,
+  logPerfilSubmit,
+  normalizePerfil,
+  parseJsonResponse,
+} from "@/lib/treino-inteligente/perfil-schema"
 import type {
   DiaTreinoGerado,
   PerfilTreinoInteligente,
@@ -32,19 +28,28 @@ export function TreinoInteligenteView() {
   const [treino, setTreino] = useState<TreinoInteligenteGerado | null>(null)
   const [historico, setHistorico] = useState<HistoricoItem[]>([])
   const [nome, setNome] = useState("")
+  const [formKey, setFormKey] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetch("/api/treino-inteligente", { credentials: "include" })
-      const data = await res.json()
+      let data: {
+        error?: string
+        perfil?: PerfilTreinoInteligente
+        treino?: TreinoInteligenteGerado
+        historico?: HistoricoItem[]
+        aluno?: { nome?: string }
+      }
+      data = await parseJsonResponse<typeof data>(res)
       if (!res.ok) throw new Error(data.error ?? "Erro ao carregar")
-      setPerfil(data.perfil)
-      setTreino(data.treino)
+      setPerfil(normalizePerfil(data.perfil))
+      setTreino(data.treino ?? null)
       setHistorico(data.historico ?? [])
       setNome(data.aluno?.nome ?? "")
+      setFormKey((k) => k + 1)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao carregar treino")
+      toast.error(friendlyFetchError(e))
     } finally {
       setLoading(false)
     }
@@ -54,24 +59,34 @@ export function TreinoInteligenteView() {
     load()
   }, [load])
 
-  async function salvarPerfil() {
-    if (!perfil) return
+  async function salvarPerfil(draft: PerfilTreinoInteligente) {
     setSaving(true)
     try {
+      logPerfilSubmit("api-put-request", draft)
       const res = await fetch("/api/treino-inteligente", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(perfil),
+        body: JSON.stringify(draft),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? "Erro ao salvar")
-      setPerfil(data.perfil)
-      setTreino(data.treino)
+      const data = await parseJsonResponse<{
+        error?: string
+        perfil?: PerfilTreinoInteligente
+        treino?: TreinoInteligenteGerado
+        fieldErrors?: Record<string, string>
+      }>(res)
+      logPerfilSubmit("api-put-response", { status: res.status, ok: res.ok, data })
+      if (!res.ok) {
+        const msg = data.error ?? Object.values(data.fieldErrors ?? {})[0] ?? "Erro ao salvar"
+        throw new Error(msg)
+      }
+      setPerfil(normalizePerfil(data.perfil))
+      setTreino(data.treino ?? null)
+      setFormKey((k) => k + 1)
       toast.success("Treino recalculado!")
       load()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao salvar")
+      toast.error(friendlyFetchError(e))
     } finally {
       setSaving(false)
     }
@@ -81,7 +96,7 @@ export function TreinoInteligenteView() {
     setSaving(true)
     try {
       const res = await fetch("/api/treino-inteligente", { method: "POST", credentials: "include" })
-      const data = await res.json()
+      const data = await parseJsonResponse<{ error?: string; treino?: TreinoInteligenteGerado }>(res)
       if (!res.ok) throw new Error(data.error ?? "Erro")
       setTreino(data.treino)
       toast.success("Novo ciclo gerado!")
@@ -135,9 +150,11 @@ export function TreinoInteligenteView() {
 
           <TabsContent value="perfil" className="mt-4">
             {perfil && (
-              <PerfilForm
+              <PerfilTreinoForm
+                key={formKey}
+                className="max-w-2xl"
                 perfil={perfil}
-                setPerfil={setPerfil}
+                onChange={setPerfil}
                 onSave={salvarPerfil}
                 saving={saving}
               />
@@ -169,123 +186,6 @@ function HistoricoRow({ h }: { h: HistoricoItem }) {
       <span className="text-sm">{new Date(h.created_at).toLocaleDateString("pt-BR")}</span>
       <span className="text-sm">IMC {h.imc}</span>
       <span className="text-sm font-medium text-primary">{h.progresso_pct}%</span>
-    </div>
-  )
-}
-
-function PerfilForm({
-  perfil,
-  setPerfil,
-  onSave,
-  saving,
-}: {
-  perfil: PerfilTreinoInteligente
-  setPerfil: (p: PerfilTreinoInteligente) => void
-  onSave: () => void
-  saving: boolean
-}) {
-  return (
-    <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
-      <Field label="Peso (kg)">
-        <Input
-          type="number"
-          value={perfil.peso_kg}
-          onChange={(e) => setPerfil({ ...perfil, peso_kg: Number(e.target.value) })}
-        />
-      </Field>
-      <Field label="Altura (cm)">
-        <Input
-          type="number"
-          value={perfil.altura_cm}
-          onChange={(e) => setPerfil({ ...perfil, altura_cm: Number(e.target.value) })}
-        />
-      </Field>
-      <Field label="Idade">
-        <Input
-          type="number"
-          value={perfil.idade}
-          onChange={(e) => setPerfil({ ...perfil, idade: Number(e.target.value) })}
-        />
-      </Field>
-      <Field label="Frequência (x/semana)">
-        <Input
-          type="number"
-          min={2}
-          max={6}
-          value={perfil.frequencia_semanal}
-          onChange={(e) => setPerfil({ ...perfil, frequencia_semanal: Number(e.target.value) })}
-        />
-      </Field>
-      <Field label="Objetivo">
-        <Input
-          value={perfil.objetivo}
-          onChange={(e) => setPerfil({ ...perfil, objetivo: e.target.value })}
-        />
-      </Field>
-      <Field label="Nível">
-        <Select
-          value={perfil.nivel}
-          onValueChange={(v) => setPerfil({ ...perfil, nivel: v as PerfilTreinoInteligente["nivel"] })}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="iniciante">Iniciante</SelectItem>
-            <SelectItem value="intermediario">Intermediário</SelectItem>
-            <SelectItem value="avancado">Avançado</SelectItem>
-          </SelectContent>
-        </Select>
-      </Field>
-      <Field label="Sexo">
-        <Select
-          value={perfil.sexo}
-          onValueChange={(v) => setPerfil({ ...perfil, sexo: v as PerfilTreinoInteligente["sexo"] })}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="masculino">Masculino</SelectItem>
-            <SelectItem value="feminino">Feminino</SelectItem>
-            <SelectItem value="outro">Outro</SelectItem>
-          </SelectContent>
-        </Select>
-      </Field>
-      <Field label="% Gordura (opcional)">
-        <Input
-          type="number"
-          value={perfil.percentual_gordura ?? ""}
-          onChange={(e) =>
-            setPerfil({
-              ...perfil,
-              percentual_gordura: e.target.value ? Number(e.target.value) : null,
-            })
-          }
-        />
-      </Field>
-      <div className="sm:col-span-2">
-        <Field label="Limitações físicas">
-          <Textarea
-            value={perfil.limitacoes ?? ""}
-            onChange={(e) => setPerfil({ ...perfil, limitacoes: e.target.value })}
-            placeholder="Ex.: joelho, lombar…"
-          />
-        </Field>
-      </div>
-      <Button onClick={onSave} disabled={saving} className="gap-2 sm:col-span-2">
-        {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
-        Salvar e recalcular treino
-      </Button>
-    </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      {children}
     </div>
   )
 }

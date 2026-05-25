@@ -5,20 +5,17 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Navbar } from "@/components/layout/navbar"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { PremiumBadge } from "@/components/premium/premium-badge"
+import { PerfilTreinoForm } from "@/components/treino-inteligente/perfil-treino-form"
 import { useSessionUser } from "@/lib/hooks/use-session-user"
 import type { PerfilTreinoInteligente } from "@/lib/treino-inteligente/generator"
-import { Brain, CreditCard, LogOut, RefreshCw, Sparkles } from "lucide-react"
+import {
+  friendlyFetchError,
+  logPerfilSubmit,
+  normalizePerfil,
+  parseJsonResponse,
+} from "@/lib/treino-inteligente/perfil-schema"
+import { Brain, CreditCard, LogOut, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
 export function PerfilFitnessView() {
@@ -27,16 +24,19 @@ export function PerfilFitnessView() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [perfil, setPerfil] = useState<PerfilTreinoInteligente | null>(null)
+  const [formKey, setFormKey] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetch("/api/treino-inteligente", { credentials: "include" })
-      const data = await res.json()
+      let data: { error?: string; perfil?: PerfilTreinoInteligente }
+      data = await parseJsonResponse<typeof data>(res)
       if (!res.ok) throw new Error(data.error ?? "Erro")
-      setPerfil(data.perfil)
+      setPerfil(normalizePerfil(data.perfil))
+      setFormKey((k) => k + 1)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao carregar perfil")
+      toast.error(friendlyFetchError(e))
     } finally {
       setLoading(false)
     }
@@ -46,22 +46,31 @@ export function PerfilFitnessView() {
     load()
   }, [load])
 
-  async function salvar() {
-    if (!perfil) return
+  async function salvar(draft: PerfilTreinoInteligente) {
     setSaving(true)
     try {
+      logPerfilSubmit("api-put-request", draft)
       const res = await fetch("/api/treino-inteligente", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(perfil),
+        body: JSON.stringify(draft),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? "Erro")
+      const data = await parseJsonResponse<{
+        error?: string
+        perfil?: PerfilTreinoInteligente
+        fieldErrors?: Record<string, string>
+      }>(res)
+      logPerfilSubmit("api-put-response", { status: res.status, ok: res.ok, data })
+      if (!res.ok) {
+        const msg = data.error ?? Object.values(data.fieldErrors ?? {})[0] ?? "Erro ao salvar"
+        throw new Error(msg)
+      }
       toast.success("Perfil atualizado!")
-      setPerfil(data.perfil)
+      setPerfil(normalizePerfil(data.perfil))
+      setFormKey((k) => k + 1)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao salvar")
+      toast.error(friendlyFetchError(e))
     } finally {
       setSaving(false)
     }
@@ -112,108 +121,19 @@ export function PerfilFitnessView() {
               <Sparkles className="h-4 w-4 text-primary" />
               Dados para IA Treino
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Peso (kg)</Label>
-                <Input
-                  type="number"
-                  value={perfil.peso_kg}
-                  onChange={(e) => setPerfil({ ...perfil, peso_kg: Number(e.target.value) })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Altura (cm)</Label>
-                <Input
-                  type="number"
-                  value={perfil.altura_cm}
-                  onChange={(e) => setPerfil({ ...perfil, altura_cm: Number(e.target.value) })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Idade</Label>
-                <Input
-                  type="number"
-                  value={perfil.idade}
-                  onChange={(e) => setPerfil({ ...perfil, idade: Number(e.target.value) })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Frequência (x/semana)</Label>
-                <Input
-                  type="number"
-                  min={2}
-                  max={6}
-                  value={perfil.frequencia_semanal}
-                  onChange={(e) =>
-                    setPerfil({ ...perfil, frequencia_semanal: Number(e.target.value) })
-                  }
-                />
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Objetivo</Label>
-                <Input
-                  value={perfil.objetivo}
-                  onChange={(e) => setPerfil({ ...perfil, objetivo: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Nível</Label>
-                <Select
-                  value={perfil.nivel}
-                  onValueChange={(v) =>
-                    setPerfil({ ...perfil, nivel: v as PerfilTreinoInteligente["nivel"] })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="iniciante">Iniciante</SelectItem>
-                    <SelectItem value="intermediario">Intermediário</SelectItem>
-                    <SelectItem value="avancado">Avançado</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Sexo</Label>
-                <Select
-                  value={perfil.sexo}
-                  onValueChange={(v) =>
-                    setPerfil({ ...perfil, sexo: v as PerfilTreinoInteligente["sexo"] })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="masculino">Masculino</SelectItem>
-                    <SelectItem value="feminino">Feminino</SelectItem>
-                    <SelectItem value="outro">Outro</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Limitações físicas</Label>
-                <Textarea
-                  value={perfil.limitacoes ?? ""}
-                  onChange={(e) => setPerfil({ ...perfil, limitacoes: e.target.value })}
-                  placeholder="Ex.: joelho, lombar…"
-                />
-              </div>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button onClick={salvar} disabled={saving} className="gap-2 flex-1">
-                {saving ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Brain className="h-4 w-4" />
-                )}
-                Salvar e recalcular treino
-              </Button>
-              <Button variant="outline" asChild className="flex-1">
-                <Link href="/treino-inteligente">Ver IA Treino</Link>
-              </Button>
-            </div>
+            <PerfilTreinoForm
+              key={formKey}
+              perfil={perfil}
+              onChange={setPerfil}
+              onSave={salvar}
+              saving={saving}
+            />
+            <Button variant="outline" asChild className="w-full">
+              <Link href="/treino-inteligente">
+                <Brain className="h-4 w-4 mr-2 inline" />
+                Ver IA Treino
+              </Link>
+            </Button>
           </div>
         )}
 

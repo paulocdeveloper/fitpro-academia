@@ -8,7 +8,8 @@ import {
   saveAlunoPerfil,
 } from "@/lib/treino-inteligente/aluno-record"
 import { gerarTreinoInteligente } from "@/lib/treino-inteligente/generator"
-import type { PerfilTreinoInteligente } from "@/lib/treino-inteligente/generator"
+import { normalizePerfil, validatePerfilPut } from "@/lib/treino-inteligente/perfil-schema"
+import { mapDbConnectionError } from "@/lib/db-errors"
 import {
   buildTreinosInsertSql,
   buildTreinosSelectSql,
@@ -92,7 +93,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Perfil de aluno não encontrado." }, { status: 404 })
   }
 
-  const perfil = alunoToPerfil(aluno)
+  const perfil = normalizePerfil(alunoToPerfil(aluno))
   let treino = await loadTreinoInteligente(auth.session.userId, auth.session.academiaId)
 
   if (!treino) {
@@ -125,19 +126,41 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 })
   }
 
-  let body: Partial<PerfilTreinoInteligente>
+  let raw: unknown
   try {
-    body = (await req.json()) as Partial<PerfilTreinoInteligente>
+    raw = await req.json()
   } catch {
     return NextResponse.json({ error: "JSON inválido." }, { status: 400 })
   }
 
+  const validated = validatePerfilPut(raw)
+  if (!validated.ok) {
+    console.info("[treino-inteligente PUT] validação falhou", {
+      error: validated.error,
+      fieldErrors: validated.fieldErrors,
+      body: raw,
+    })
+    return NextResponse.json(
+      { error: validated.error, fieldErrors: validated.fieldErrors },
+      { status: 400 },
+    )
+  }
+  console.info("[treino-inteligente PUT] perfil validado", validated.data)
+
   const aluno = await resolveAlunoForUser(auth.session)
   if (!aluno) return NextResponse.json({ error: "Aluno não encontrado." }, { status: 404 })
 
-  await saveAlunoPerfil(aluno.id, body)
+  try {
+    await saveAlunoPerfil(aluno.id, validated.data)
+  } catch (e) {
+    const mapped = mapDbConnectionError(e)
+    if (mapped) return NextResponse.json({ error: mapped.error }, { status: mapped.status })
+    console.error("[treino-inteligente PUT]", e)
+    return NextResponse.json({ error: "Não foi possível salvar o perfil." }, { status: 500 })
+  }
+
   const updated = await resolveAlunoForUser(auth.session)
-  const perfil = alunoToPerfil(updated!)
+  const perfil = normalizePerfil(alunoToPerfil(updated!))
 
   const prev = await loadTreinoInteligente(auth.session.userId, auth.session.academiaId)
   const progresso = prev?.progresso_pct ?? 0

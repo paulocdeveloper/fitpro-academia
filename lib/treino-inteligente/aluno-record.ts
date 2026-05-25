@@ -1,6 +1,7 @@
 import { query, insertRow } from "@/lib/db"
 import type { JwtPayloadUser } from "@/lib/auth/jwt"
-import type { PerfilTreinoInteligente, SexoAluno, NivelAluno } from "@/lib/treino-inteligente/generator"
+import type { PerfilTreinoInteligente } from "@/lib/treino-inteligente/generator"
+import { normalizePerfil } from "@/lib/treino-inteligente/perfil-schema"
 
 export type AlunoRecord = {
   id: number
@@ -108,43 +109,44 @@ export async function resolveAlunoForUser(session: JwtPayloadUser): Promise<Alun
 }
 
 export function alunoToPerfil(aluno: AlunoRecord): PerfilTreinoInteligente {
-  return {
-    peso_kg: Number(aluno.peso) || 70,
-    altura_cm: Number(aluno.altura) || 170,
-    idade: Number(aluno.idade) || 25,
-    sexo: (aluno.sexo as SexoAluno) || "outro",
-    objetivo: aluno.objetivo?.trim() || "Hipertrofia",
-    nivel: (aluno.nivel as NivelAluno) || "iniciante",
-    frequencia_semanal: Number(aluno.frequencia_semanal) || 3,
+  return normalizePerfil({
+    peso_kg: aluno.peso,
+    altura_cm: aluno.altura,
+    idade: aluno.idade,
+    sexo: aluno.sexo,
+    objetivo: aluno.objetivo,
+    nivel: aluno.nivel,
+    frequencia_semanal: aluno.frequencia_semanal,
     limitacoes: aluno.limitacoes,
-    percentual_gordura: aluno.percentual_gordura != null ? Number(aluno.percentual_gordura) : null,
-  }
+    percentual_gordura: aluno.percentual_gordura,
+  })
 }
 
-export async function saveAlunoPerfil(alunoId: number, perfil: Partial<PerfilTreinoInteligente>) {
+export async function saveAlunoPerfil(alunoId: number, perfil: PerfilTreinoInteligente) {
+  const p = normalizePerfil(perfil)
   await query(
     `UPDATE alunos SET
-      peso = COALESCE(?, peso),
-      altura = COALESCE(?, altura),
-      idade = COALESCE(?, idade),
-      sexo = COALESCE(?, sexo),
-      objetivo = COALESCE(?, objetivo),
-      nivel = COALESCE(?, nivel),
-      frequencia_semanal = COALESCE(?, frequencia_semanal),
-      limitacoes = COALESCE(?, limitacoes),
-      percentual_gordura = COALESCE(?, percentual_gordura),
+      peso = ?,
+      altura = ?,
+      idade = ?,
+      sexo = ?,
+      objetivo = ?,
+      nivel = ?,
+      frequencia_semanal = ?,
+      limitacoes = ?,
+      percentual_gordura = ?,
       updated_at = now()
      WHERE id = ?`,
     [
-      perfil.peso_kg ?? null,
-      perfil.altura_cm ?? null,
-      perfil.idade ?? null,
-      perfil.sexo ?? null,
-      perfil.objetivo ?? null,
-      perfil.nivel ?? null,
-      perfil.frequencia_semanal ?? null,
-      perfil.limitacoes ?? null,
-      perfil.percentual_gordura ?? null,
+      p.peso_kg,
+      p.altura_cm,
+      p.idade,
+      p.sexo,
+      p.objetivo,
+      p.nivel,
+      p.frequencia_semanal,
+      p.limitacoes,
+      p.percentual_gordura,
       alunoId,
     ],
   )
