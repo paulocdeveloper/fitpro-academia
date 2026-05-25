@@ -9,12 +9,8 @@ import { PremiumBadge } from "@/components/premium/premium-badge"
 import { PerfilTreinoForm } from "@/components/treino-inteligente/perfil-treino-form"
 import { useSessionUser } from "@/lib/hooks/use-session-user"
 import type { PerfilTreinoInteligente } from "@/lib/treino-inteligente/generator"
-import {
-  friendlyFetchError,
-  logPerfilSubmit,
-  normalizePerfil,
-  parseJsonResponse,
-} from "@/lib/treino-inteligente/perfil-schema"
+import { salvarPerfilTreinoApi } from "@/lib/treino-inteligente/salvar-perfil-client"
+import { friendlyFetchError, normalizePerfil } from "@/lib/treino-inteligente/perfil-schema"
 import { Brain, CreditCard, LogOut, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
@@ -31,7 +27,11 @@ export function PerfilFitnessView() {
     try {
       const res = await fetch("/api/treino-inteligente", { credentials: "include" })
       let data: { error?: string; perfil?: PerfilTreinoInteligente }
-      data = await parseJsonResponse<typeof data>(res)
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error(res.ok ? "Resposta inválida do servidor." : `Erro ${res.status}`)
+      }
       if (!res.ok) throw new Error(data.error ?? "Erro")
       setPerfil(normalizePerfil(data.perfil))
       setFormKey((k) => k + 1)
@@ -49,28 +49,10 @@ export function PerfilFitnessView() {
   async function salvar(draft: PerfilTreinoInteligente) {
     setSaving(true)
     try {
-      logPerfilSubmit("api-put-request", draft)
-      const res = await fetch("/api/treino-inteligente", {
-        method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
-      })
-      const data = await parseJsonResponse<{
-        error?: string
-        perfil?: PerfilTreinoInteligente
-        fieldErrors?: Record<string, string>
-      }>(res)
-      logPerfilSubmit("api-put-response", { status: res.status, ok: res.ok, data })
-      if (!res.ok) {
-        const msg = data.error ?? Object.values(data.fieldErrors ?? {})[0] ?? "Erro ao salvar"
-        throw new Error(msg)
-      }
-      toast.success("Perfil atualizado!")
-      setPerfil(normalizePerfil(data.perfil))
+      const result = await salvarPerfilTreinoApi(draft)
+      toast.success("Perfil atualizado! Treino recalculado.")
+      setPerfil(result.perfil)
       setFormKey((k) => k + 1)
-    } catch (e) {
-      toast.error(friendlyFetchError(e))
     } finally {
       setSaving(false)
     }

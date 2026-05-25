@@ -8,7 +8,11 @@ import {
   saveAlunoPerfil,
 } from "@/lib/treino-inteligente/aluno-record"
 import { gerarTreinoInteligente } from "@/lib/treino-inteligente/generator"
-import { normalizePerfil, validatePerfilPut } from "@/lib/treino-inteligente/perfil-schema"
+import {
+  coercePerfilBody,
+  normalizePerfil,
+  validatePerfilPut,
+} from "@/lib/treino-inteligente/perfil-schema"
 import { mapDbConnectionError } from "@/lib/db-errors"
 import {
   buildTreinosInsertSql,
@@ -133,19 +137,25 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "JSON inválido." }, { status: 400 })
   }
 
-  const validated = validatePerfilPut(raw)
+  const coerced = coercePerfilBody(raw)
+  console.info("[perfil-submit:api]", {
+    peso_kg: coerced.peso_kg,
+    altura_cm: coerced.altura_cm,
+    idade: coerced.idade,
+    frequencia_semanal: coerced.frequencia_semanal,
+    sexo: coerced.sexo,
+    objetivo: coerced.objetivo,
+    percentual_gordura: coerced.percentual_gordura,
+  })
+
+  const validated = validatePerfilPut(coerced)
   if (!validated.ok) {
-    console.info("[treino-inteligente PUT] validação falhou", {
-      error: validated.error,
-      fieldErrors: validated.fieldErrors,
-      body: raw,
-    })
+    console.info("[perfil-submit:api] validation-failed", validated.fieldErrors)
     return NextResponse.json(
       { error: validated.error, fieldErrors: validated.fieldErrors },
       { status: 400 },
     )
   }
-  console.info("[treino-inteligente PUT] perfil validado", validated.data)
 
   const aluno = await resolveAlunoForUser(auth.session)
   if (!aluno) return NextResponse.json({ error: "Aluno não encontrado." }, { status: 404 })

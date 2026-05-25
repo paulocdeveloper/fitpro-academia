@@ -13,15 +13,16 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import type { PerfilTreinoInteligente } from "@/lib/treino-inteligente/generator"
+import { buildPerfilFromForm, logPerfilSubmit } from "@/lib/treino-inteligente/perfil-payload"
 import {
   NIVEIS_TREINO,
   OBJETIVOS_TREINO,
   SEXOS_TREINO,
-  buildPerfilSubmitPayload,
   formatNumeroInput,
-  logPerfilSubmit,
+  friendlyFetchError,
   normalizePerfil,
   parseNumeroCampo,
+  PerfilSaveError,
   validatePerfilClient,
   type PerfilFieldErrors,
 } from "@/lib/treino-inteligente/perfil-schema"
@@ -77,64 +78,82 @@ export function PerfilTreinoForm({
     const masked = raw.replace(/[^\d.,]/g, "")
     setPesoStr(masked)
     const n = parseNumeroCampo(masked)
-    const next = syncPerfil({ peso_kg: n ?? perfil.peso_kg })
-    validateInstant(next)
+    if (n !== undefined) syncPerfil({ peso_kg: n })
   }
 
   const handleAltura = (raw: string) => {
     const masked = raw.replace(/[^\d.,]/g, "")
     setAlturaStr(masked)
     const n = parseNumeroCampo(masked)
-    const next = syncPerfil({ altura_cm: n ?? perfil.altura_cm })
-    validateInstant(next)
+    if (n !== undefined) syncPerfil({ altura_cm: n })
   }
 
   const handleIdade = (raw: string) => {
     const masked = raw.replace(/\D/g, "")
     setIdadeStr(masked)
     const n = parseNumeroCampo(masked)
-    const next = syncPerfil({ idade: n ?? perfil.idade })
-    validateInstant(next)
+    if (n !== undefined) syncPerfil({ idade: n })
   }
 
   const handleFreq = (raw: string) => {
     const masked = raw.replace(/\D/g, "").slice(0, 1)
     setFreqStr(masked)
     const n = parseNumeroCampo(masked)
-    const next = syncPerfil({ frequencia_semanal: n ?? perfil.frequencia_semanal })
-    validateInstant(next)
+    if (n !== undefined) syncPerfil({ frequencia_semanal: n })
   }
 
   const handleGordura = (raw: string) => {
     const masked = raw.replace(/[^\d.,]/g, "")
     setGorduraStr(masked)
-    const n = parseNumeroCampo(masked)
-    const next = syncPerfil({ percentual_gordura: n === undefined ? null : n })
-    validateInstant(next)
+    syncPerfil({ percentual_gordura: masked.trim() ? parseNumeroCampo(masked) ?? null : null })
+    if (errors.percentual_gordura) {
+      setErrors((prev) => {
+        const next = { ...prev }
+        delete next.percentual_gordura
+        return next
+      })
+    }
   }
 
   async function handleSave() {
-    const draft = buildPerfilSubmitPayload(
-      { pesoStr, alturaStr, idadeStr, freqStr, gorduraStr },
-      perfil,
-    )
-    logPerfilSubmit("submit-draft", draft, { pesoStr, alturaStr, idadeStr, freqStr, gorduraStr })
-
+    const draft = buildPerfilFromForm(perfil, {
+      pesoStr,
+      alturaStr,
+      idadeStr,
+      freqStr,
+      gorduraStr,
+    })
+    logPerfilSubmit("client-validate", {
+      peso_kg: draft.peso_kg,
+      altura_cm: draft.altura_cm,
+      idade: draft.idade,
+      frequencia_semanal: draft.frequencia_semanal,
+      sexo: draft.sexo,
+      objetivo: draft.objetivo,
+      percentual_gordura: draft.percentual_gordura,
+    })
     const { ok, fieldErrors, message } = validatePerfilClient(draft)
     if (!ok) {
-      logPerfilSubmit("submit-validation-failed", fieldErrors, { message })
       setErrors(fieldErrors)
       toast.error(message ?? "Corrija os campos destacados.")
       return
     }
     setErrors({})
     onChange(draft)
-    logPerfilSubmit("submit-ok", draft)
-    await onSave(draft)
+    try {
+      await onSave(draft)
+    } catch (e) {
+      if (e instanceof PerfilSaveError) {
+        setErrors(e.fieldErrors)
+        toast.error(e.message)
+        return
+      }
+      toast.error(friendlyFetchError(e))
+    }
   }
 
-  const sexoValue = SEXOS_TREINO.includes(perfil.sexo) ? perfil.sexo : undefined
-  const nivelValue = NIVEIS_TREINO.includes(perfil.nivel) ? perfil.nivel : undefined
+  const sexoValue = SEXOS_TREINO.includes(perfil.sexo) ? perfil.sexo : "outro"
+  const nivelValue = NIVEIS_TREINO.includes(perfil.nivel) ? perfil.nivel : "iniciante"
   const objetivoValue = OBJETIVOS_TREINO.includes(
     perfil.objetivo as (typeof OBJETIVOS_TREINO)[number],
   )
@@ -142,12 +161,19 @@ export function PerfilTreinoForm({
     : normalizePerfil(perfil).objetivo
 
   return (
-    <div className={cn("grid gap-4 sm:grid-cols-2", className)}>
+    <div
+      className={cn("grid gap-4 sm:grid-cols-2", className)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && (e.target as HTMLElement).tagName !== "TEXTAREA") {
+          e.preventDefault()
+          void handleSave()
+        }
+      }}
+    >
       <div className="space-y-2">
         <Label htmlFor="peso-kg">Peso (kg)</Label>
         <Input
           id="peso-kg"
-          type="text"
           inputMode="decimal"
           enterKeyHint="next"
           autoComplete="off"
@@ -164,7 +190,6 @@ export function PerfilTreinoForm({
         <Label htmlFor="altura-cm">Altura (cm)</Label>
         <Input
           id="altura-cm"
-          type="text"
           inputMode="numeric"
           enterKeyHint="next"
           autoComplete="off"
@@ -181,7 +206,6 @@ export function PerfilTreinoForm({
         <Label htmlFor="idade">Idade</Label>
         <Input
           id="idade"
-          type="text"
           inputMode="numeric"
           enterKeyHint="next"
           autoComplete="off"
@@ -198,7 +222,6 @@ export function PerfilTreinoForm({
         <Label htmlFor="frequencia">Frequência (x/semana)</Label>
         <Input
           id="frequencia"
-          type="text"
           inputMode="numeric"
           enterKeyHint="next"
           autoComplete="off"
@@ -278,18 +301,18 @@ export function PerfilTreinoForm({
           <Label htmlFor="gordura">% Gordura (opcional)</Label>
           <Input
             id="gordura"
-            type="text"
             inputMode="decimal"
             enterKeyHint="done"
             autoComplete="off"
             placeholder="Deixe vazio se não souber"
             value={gorduraStr}
             onChange={(e) => handleGordura(e.target.value)}
-            onBlur={() => validateInstant(normalizePerfil(perfil))}
-            aria-invalid={!!errors.percentual_gordura}
-            className={errors.percentual_gordura ? "border-destructive" : undefined}
+            onBlur={() => {
+              syncPerfil({
+                percentual_gordura: gorduraStr.trim() ? parseNumeroCampo(gorduraStr) ?? null : null,
+              })
+            }}
           />
-          <FieldError message={errors.percentual_gordura} />
         </div>
       )}
       <div className="space-y-2 sm:col-span-2">
@@ -307,7 +330,7 @@ export function PerfilTreinoForm({
       </div>
       <Button
         type="button"
-        onClick={handleSave}
+        onClick={() => void handleSave()}
         disabled={saving}
         className="gap-2 sm:col-span-2"
       >

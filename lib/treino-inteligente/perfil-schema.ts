@@ -97,9 +97,7 @@ export function normalizePerfil(input: Partial<PerfilTreinoInteligente> | null |
       ? null
       : String(limitacoesRaw).trim() || null
 
-  const gordura = parseNumeroCampo(src.percentual_gordura)
-  const percentual_gordura =
-    gordura === undefined ? null : Math.round(gordura * 10) / 10
+  const percentual_gordura = normalizeGorduraOpcional(src.percentual_gordura)
 
   return {
     peso_kg: parseNumeroCampo(src.peso_kg) ?? 70,
@@ -116,6 +114,14 @@ export function normalizePerfil(input: Partial<PerfilTreinoInteligente> | null |
 
 function clampFrequencia(n: number): number {
   return Math.min(6, Math.max(2, Math.round(n)))
+}
+
+/** % gordura opcional: vazio/inválido → null; nunca NaN. */
+export function normalizeGorduraOpcional(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null
+  const n = parseNumeroCampo(value)
+  if (n === undefined || !Number.isFinite(n)) return null
+  return Math.round(n * 10) / 10
 }
 
 const perfilPutSchema = z
@@ -171,16 +177,9 @@ const perfilPutSchema = z
         return t === "" ? null : t
       }),
     percentual_gordura: z
-      .union([z.number(), z.string(), z.null()])
+      .union([z.number(), z.string(), z.null(), z.undefined()])
       .optional()
-      .transform((v) => {
-        const n = parseNumeroCampo(v)
-        if (n === undefined) return null
-        return Math.round(n * 10) / 10
-      })
-      .refine((v) => v === null || (v >= 3 && v <= 60), {
-        message: "% de gordura inválido (use 3 a 60 ou deixe vazio)",
-      }),
+      .transform((v) => normalizeGorduraOpcional(v)),
   })
 
 export type PerfilFieldErrors = Partial<Record<keyof PerfilTreinoInteligente | "form", string>>
@@ -188,7 +187,7 @@ export type PerfilFieldErrors = Partial<Record<keyof PerfilTreinoInteligente | "
 export function validatePerfilPut(body: unknown):
   | { ok: true; data: PerfilTreinoInteligente }
   | { ok: false; error: string; fieldErrors: PerfilFieldErrors } {
-  const parsed = perfilPutSchema.safeParse(body)
+  const parsed = perfilPutSchema.safeParse(coercePerfilBody(body))
   if (parsed.success) {
     return { ok: true, data: parsed.data as PerfilTreinoInteligente }
   }
@@ -215,35 +214,23 @@ export function validatePerfilClient(perfil: PerfilTreinoInteligente): {
   return { ok: false, fieldErrors: result.fieldErrors, message: result.error }
 }
 
-export type PerfilFormStrings = {
-  pesoStr: string
-  alturaStr: string
-  idadeStr: string
-  freqStr: string
-  gorduraStr: string
-}
-
-/** Monta payload numérico a partir dos campos de texto (Safari-safe). */
-export function buildPerfilSubmitPayload(
-  strings: PerfilFormStrings,
-  base: PerfilTreinoInteligente,
-): PerfilTreinoInteligente {
-  const peso = parseNumeroCampo(strings.pesoStr)
-  const altura = parseNumeroCampo(strings.alturaStr)
-  const idade = parseNumeroCampo(strings.idadeStr)
-  const freq = parseNumeroCampo(strings.freqStr)
-  const gorduraRaw = strings.gorduraStr.trim()
-  const gordura = gorduraRaw ? parseNumeroCampo(strings.gorduraStr) : null
-
-  return normalizePerfil({
-    ...base,
-    peso_kg: peso ?? base.peso_kg,
-    altura_cm: altura ?? base.altura_cm,
-    idade: idade ?? base.idade,
-    frequencia_semanal: freq ?? base.frequencia_semanal,
-    percentual_gordura: gordura === undefined ? null : gordura,
-    limitacoes: base.limitacoes?.trim() ? base.limitacoes.trim() : null,
-  })
+/** Normaliza chaves legadas (peso/altura) no body da API. */
+export function coercePerfilBody(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {}
+  }
+  const b = raw as Record<string, unknown>
+  return {
+    peso_kg: b.peso_kg ?? b.peso,
+    altura_cm: b.altura_cm ?? b.altura,
+    idade: b.idade,
+    frequencia_semanal: b.frequencia_semanal ?? b.frequencia,
+    sexo: b.sexo,
+    nivel: b.nivel,
+    objetivo: b.objetivo,
+    limitacoes: b.limitacoes,
+    percentual_gordura: b.percentual_gordura ?? b.gordura,
+  }
 }
 
 /** Evita DOMException do Safari/Radix em inputs number e Select. */
@@ -252,40 +239,36 @@ export function formatNumeroInput(value: number | null | undefined): string {
   return String(value)
 }
 
-/** Lê JSON sem usar res.json() — no Safari/iOS isso pode lançar "did not match the expected pattern". */
-export async function parseJsonResponse<T>(res: Response): Promise<T> {
-  const text = await res.text()
-  if (!text.trim()) {
-    throw new Error(res.ok ? "Resposta vazia do servidor." : `Erro ${res.status} ao salvar.`)
-  }
-  try {
-    return JSON.parse(text) as T
-  } catch {
-    throw new Error(
-      res.ok ? "Resposta inválida do servidor." : `Erro ${res.status} ao salvar. Tente novamente.`,
-    )
+/** Erro estruturado com erros por campo (API ou cliente). */
+export class PerfilSaveError extends Error {
+  fieldErrors: PerfilFieldErrors
+
+  constructor(message: string, fieldErrors: PerfilFieldErrors = {}) {
+    super(message)
+    this.name = "PerfilSaveError"
+    this.fieldErrors = fieldErrors
   }
 }
 
-const SAFARI_PATTERN_RE = /did not match the expected pattern/i
+const SAFARI_PATTERN =
+  /did not match the expected pattern|string did not match/i
 
 export function friendlyFetchError(e: unknown): string {
-  const msg = e instanceof Error ? e.message : "Erro ao salvar"
-  if (SAFARI_PATTERN_RE.test(msg)) {
+  if (e instanceof PerfilSaveError) {
+    return e.message
+  }
+  const msg =
+    e instanceof Error
+      ? e.message
+      : typeof e === "object" && e !== null && "message" in e
+        ? String((e as { message: unknown }).message)
+        : "Erro ao salvar"
+
+  if (SAFARI_PATTERN.test(msg)) {
     return "Verifique peso, altura, idade e frequência (apenas números válidos)."
   }
   if (/failed to fetch|network|load failed/i.test(msg)) {
     return "Sem conexão. Tente novamente."
   }
-  return msg
-}
-
-/** Logs temporários de diagnóstico (remover após validar em produção). */
-export function logPerfilSubmit(
-  stage: string,
-  payload: unknown,
-  extra?: Record<string, unknown>,
-): void {
-  if (typeof console === "undefined") return
-  console.info("[perfil-treino]", stage, payload, extra ?? "")
+  return msg || "Erro ao salvar"
 }

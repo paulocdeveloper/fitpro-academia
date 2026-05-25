@@ -5,12 +5,8 @@ import { Navbar } from "@/components/layout/navbar"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PerfilTreinoForm } from "@/components/treino-inteligente/perfil-treino-form"
-import {
-  friendlyFetchError,
-  logPerfilSubmit,
-  normalizePerfil,
-  parseJsonResponse,
-} from "@/lib/treino-inteligente/perfil-schema"
+import { salvarPerfilTreinoApi } from "@/lib/treino-inteligente/salvar-perfil-client"
+import { friendlyFetchError, normalizePerfil } from "@/lib/treino-inteligente/perfil-schema"
 import type {
   DiaTreinoGerado,
   PerfilTreinoInteligente,
@@ -41,7 +37,11 @@ export function TreinoInteligenteView() {
         historico?: HistoricoItem[]
         aluno?: { nome?: string }
       }
-      data = await parseJsonResponse<typeof data>(res)
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error(res.ok ? "Resposta inválida do servidor." : `Erro ${res.status}`)
+      }
       if (!res.ok) throw new Error(data.error ?? "Erro ao carregar")
       setPerfil(normalizePerfil(data.perfil))
       setTreino(data.treino ?? null)
@@ -62,31 +62,12 @@ export function TreinoInteligenteView() {
   async function salvarPerfil(draft: PerfilTreinoInteligente) {
     setSaving(true)
     try {
-      logPerfilSubmit("api-put-request", draft)
-      const res = await fetch("/api/treino-inteligente", {
-        method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
-      })
-      const data = await parseJsonResponse<{
-        error?: string
-        perfil?: PerfilTreinoInteligente
-        treino?: TreinoInteligenteGerado
-        fieldErrors?: Record<string, string>
-      }>(res)
-      logPerfilSubmit("api-put-response", { status: res.status, ok: res.ok, data })
-      if (!res.ok) {
-        const msg = data.error ?? Object.values(data.fieldErrors ?? {})[0] ?? "Erro ao salvar"
-        throw new Error(msg)
-      }
-      setPerfil(normalizePerfil(data.perfil))
-      setTreino(data.treino ?? null)
+      const result = await salvarPerfilTreinoApi(draft)
+      setPerfil(result.perfil)
+      setTreino((result.treino as TreinoInteligenteGerado | undefined) ?? null)
       setFormKey((k) => k + 1)
       toast.success("Treino recalculado!")
       load()
-    } catch (e) {
-      toast.error(friendlyFetchError(e))
     } finally {
       setSaving(false)
     }
@@ -96,7 +77,7 @@ export function TreinoInteligenteView() {
     setSaving(true)
     try {
       const res = await fetch("/api/treino-inteligente", { method: "POST", credentials: "include" })
-      const data = await parseJsonResponse<{ error?: string; treino?: TreinoInteligenteGerado }>(res)
+      const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? "Erro")
       setTreino(data.treino)
       toast.success("Novo ciclo gerado!")
