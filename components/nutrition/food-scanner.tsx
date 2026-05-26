@@ -62,9 +62,12 @@ const SCAN_STEPS = [
 
 type FoodScannerProps = {
   onAddFood?: (food: ScannedFood) => void
-  /** Oculta o botão padrão — use com onRegisterOpen + FoodScannerOpenButton. */
+  /** Oculta o botão padrão — use com FoodScannerOpenButton. */
   hideTrigger?: boolean
-  /** Registra openScanner para acionar de outro lugar (uma instância por página). */
+  /** Modo controlado: modal só renderiza quando true. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** @deprecated Preferir open + onOpenChange */
   onRegisterOpen?: (open: (() => void) | null) => void
 }
 
@@ -91,7 +94,14 @@ export function FoodScannerOpenButton({
   )
 }
 
-export function FoodScanner({ onAddFood, hideTrigger = false, onRegisterOpen }: FoodScannerProps) {
+export function FoodScanner({
+  onAddFood,
+  hideTrigger = false,
+  open: openProp,
+  onOpenChange,
+  onRegisterOpen,
+}: FoodScannerProps) {
+  const isControlled = openProp !== undefined
   const [state, setState] = useState<ScannerState>("idle")
   const [analysis, setAnalysis] = useState<MealAnalysisResult | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
@@ -285,6 +295,7 @@ export function FoodScanner({ onAddFood, hideTrigger = false, onRegisterOpen }: 
     setCameraFailure(null)
 
     if (!isGetUserMediaSupported()) {
+      onOpenChange?.(true)
       setState("camera")
       setCameraPhase("unsupported")
       setCameraError("Seu navegador não suporta acesso à câmera.")
@@ -292,15 +303,50 @@ export function FoodScanner({ onAddFood, hideTrigger = false, onRegisterOpen }: 
     }
 
     stopCamera()
+    onOpenChange?.(true)
     setState("camera")
     setCameraPhase("prompt")
     logCamera("scanner-opened-manual", { autoCamera: false })
-  }, [stopCamera])
+  }, [onOpenChange, stopCamera])
 
   useEffect(() => {
     onRegisterOpen?.(openScanner)
     return () => onRegisterOpen?.(null)
   }, [onRegisterOpen, openScanner])
+
+  /** Sincroniza abertura controlada pelo pai (isScannerOpen = true). */
+  useEffect(() => {
+    if (!isControlled || !openProp || state !== "idle") return
+    setQualityHint(null)
+    setIsSwitchingCamera(false)
+    setFacingMode(getInitialCameraFacing())
+    setCameraError(null)
+    setCameraFailure(null)
+    stopCamera()
+    if (!isGetUserMediaSupported()) {
+      setState("camera")
+      setCameraPhase("unsupported")
+      setCameraError("Seu navegador não suporta acesso à câmera.")
+      return
+    }
+    setState("camera")
+    setCameraPhase("prompt")
+  }, [isControlled, openProp, state, stopCamera])
+
+  /** Fecha modal controlado externamente. */
+  useEffect(() => {
+    if (!isControlled || openProp) return
+    stopCamera()
+    setState("idle")
+    setAnalysis(null)
+    setPreviewImage(null)
+    setCameraError(null)
+    setCameraFailure(null)
+    setCameraPhase("prompt")
+    setQualityHint(null)
+    setStability(0)
+    prevFrameRef.current = null
+  }, [isControlled, openProp, stopCamera])
 
   const switchCamera = useCallback(() => {
     const next: CameraFacing = facingMode === "environment" ? "user" : "environment"
@@ -454,17 +500,18 @@ export function FoodScanner({ onAddFood, hideTrigger = false, onRegisterOpen }: 
       carboidratos_g: Number((c100 * mult).toFixed(1)),
       gorduras_g: Number((f100 * mult).toFixed(1)),
     })
-    setState("idle")
     setManualName("")
     setManualGrams("150")
     setManualKcal100("")
     setManualProt100("")
     setManualCarbo100("")
     setManualGord100("")
+    handleClose()
   }
 
   const handleClose = () => {
     stopCamera()
+    onOpenChange?.(false)
     setState("idle")
     setAnalysis(null)
     setPreviewImage(null)
@@ -526,12 +573,13 @@ export function FoodScanner({ onAddFood, hideTrigger = false, onRegisterOpen }: 
     return () => cancelAnimationFrame(raf)
   }, [state, cameraPhase])
 
+  const isModalOpen = isControlled ? Boolean(openProp) : state !== "idle"
+
   return (
     <>
       {!hideTrigger && <FoodScannerOpenButton onOpen={openScanner} />}
 
-      {/* Overlay modal */}
-      {state !== "idle" && (
+      {isModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: "oklch(0.05 0.005 260 / 0.92)", backdropFilter: "blur(6px)" }}
