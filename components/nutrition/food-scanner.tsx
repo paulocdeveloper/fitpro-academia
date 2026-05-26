@@ -13,12 +13,16 @@ import { captureFrameQuality, frameStabilityScore } from "@/lib/nutrition/client
 import {
   applyContinuousFocus,
   attachStreamToVideo,
+  cameraFacingLabel,
   formatCameraErrorDetail,
   getCameraUiTitle,
+  getInitialCameraFacing,
+  inferFacingFromTrack,
   isGetUserMediaSupported,
   isStreamLive,
   logCamera,
   mapFailureToCameraPhase,
+  persistCameraFacing,
   queryCameraPermission,
   releaseCameraHardware,
   requestCameraStream,
@@ -76,7 +80,8 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
   const [cameraPhase, setCameraPhase] = useState<CameraPhase>("prompt")
   const cameraRequestId = useRef(0)
   const mountedRef = useRef(true)
-  const [facingMode, setFacingMode] = useState<CameraFacing>("environment")
+  const [facingMode, setFacingMode] = useState<CameraFacing>(() => getInitialCameraFacing())
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false)
   const [visionReady, setVisionReady] = useState<boolean | null>(null)
   const [visionModel, setVisionModel] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -158,40 +163,22 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     [applyCameraFailure],
   )
 
-  /** Abre modal; reutiliza stream vivo se existir. */
-  const openScanner = useCallback(() => {
-    setQualityHint(null)
-    setState("camera")
-
-    if (!isGetUserMediaSupported()) {
-      setCameraPhase("unsupported")
-      setCameraError("Seu navegador não suporta acesso à câmera.")
-      return
+  const syncFacingFromStream = useCallback((stream: MediaStream) => {
+    const inferred = inferFacingFromTrack(stream.getVideoTracks()[0])
+    if (inferred) {
+      setFacingMode(inferred)
+      persistCameraFacing(inferred)
     }
+  }, [])
 
-    if (streamRef.current && isStreamLive(streamRef.current)) {
-      logCamera("resume-existing-stream")
-      const requestId = ++cameraRequestId.current
-      setCameraPhase("loading")
-      setCameraError(null)
-      void activateLiveStream(streamRef.current, requestId)
-      return
-    }
-
-    stopCamera()
-    setCameraError(null)
-    setCameraFailure(null)
-    setCameraPhase("prompt")
-    void queryCameraPermission().then((perm) => {
-      logCamera("open-permission-hint", { perm })
-    })
-  }, [activateLiveStream, stopCamera])
-
-  /** getUserMedia no clique — pop-up nativo. */
+  /** getUserMedia no clique — pop-up nativo (ou gesto do botão Escanear). */
   const requestCameraPermission = useCallback(
-    (preferredFacing?: CameraFacing) => {
+    (preferredFacing?: CameraFacing, options?: { switchInPlace?: boolean }) => {
       const facing = preferredFacing ?? facingMode
-      if (preferredFacing) setFacingMode(preferredFacing)
+      if (preferredFacing) {
+        setFacingMode(preferredFacing)
+        persistCameraFacing(preferredFacing)
+      }
 
       if (!isGetUserMediaSupported()) {
         setCameraPhase("unsupported")
@@ -199,15 +186,21 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
         return
       }
 
+      const switchInPlace = Boolean(options?.switchInPlace)
       const requestId = ++cameraRequestId.current
       setCameraError(null)
       setCameraFailure(null)
-      setCameraPhase("loading")
-      logCamera("user-request", { requestId, facing })
+      if (switchInPlace) {
+        setIsSwitchingCamera(true)
+      } else {
+        setCameraPhase("loading")
+      }
+      logCamera("user-request", { requestId, facing, switchInPlace })
 
       void (async () => {
         try {
-          if (streamRef.current && isStreamLive(streamRef.current)) {
+          if (!switchInPlace && streamRef.current && isStreamLive(streamRef.current)) {
+            syncFacingFromStream(streamRef.current)
             await activateLiveStream(streamRef.current, requestId)
             return
           }
@@ -218,6 +211,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
           if (!mountedRef.current || requestId !== cameraRequestId.current) return
 
           streamRef.current = stream
+          syncFacingFromStream(stream)
           await applyContinuousFocus(stream)
           await activateLiveStream(stream, requestId)
         } catch (e) {
@@ -231,15 +225,54 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                 message: (e as Error)?.message || "Não foi possível abrir a câmera.",
               }
           applyCameraFailure(failure)
+        } finally {
+          if (mountedRef.current && requestId === cameraRequestId.current) {
+            setIsSwitchingCamera(false)
+          }
         }
       })()
     },
-    [activateLiveStream, applyCameraFailure, facingMode, stopCamera],
+    [activateLiveStream, applyCameraFailure, facingMode, syncFacingFromStream],
   )
+
+  /** Abre modal; reutiliza stream vivo se existir. */
+  const openScanner = useCallback(() => {
+    setQualityHint(null)
+    setState("camera")
+    setIsSwitchingCamera(false)
+
+    const initialFacing = getInitialCameraFacing()
+    setFacingMode(initialFacing)
+
+    if (!isGetUserMediaSupported()) {
+      setCameraPhase("unsupported")
+      setCameraError("Seu navegador não suporta acesso à câmera.")
+      return
+    }
+
+    if (streamRef.current && isStreamLive(streamRef.current)) {
+      logCamera("resume-existing-stream")
+      const requestId = ++cameraRequestId.current
+      setCameraPhase("loading")
+      setCameraError(null)
+      syncFacingFromStream(streamRef.current)
+      void activateLiveStream(streamRef.current, requestId)
+      return
+    }
+
+    stopCamera()
+    setCameraError(null)
+    setCameraFailure(null)
+    setCameraPhase("loading")
+    void queryCameraPermission().then((perm) => {
+      logCamera("open-permission-hint", { perm, initialFacing })
+    })
+    requestCameraPermission(initialFacing)
+  }, [activateLiveStream, requestCameraPermission, stopCamera, syncFacingFromStream])
 
   const switchCamera = useCallback(() => {
     const next: CameraFacing = facingMode === "environment" ? "user" : "environment"
-    requestCameraPermission(next)
+    requestCameraPermission(next, { switchInPlace: true })
   }, [facingMode, requestCameraPermission])
 
   const captureAndScan = async () => {
@@ -596,7 +629,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                               size="sm"
                               className="gap-2 font-semibold neon-glow"
                               style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
-                              onClick={() => requestCameraPermission("environment")}
+                              onClick={() => requestCameraPermission(getInitialCameraFacing())}
                             >
                               <Camera className="w-4 h-4" />
                               Permitir câmera
@@ -606,7 +639,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={() => requestCameraPermission("environment")}
+                                onClick={() => requestCameraPermission(getInitialCameraFacing())}
                                 className="gap-1.5"
                               >
                                 <RefreshCw className="w-3.5 h-3.5" /> Tentar novamente
@@ -619,10 +652,23 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
 
                     {cameraPhase === "live" && (
                       <>
+                      <div
+                        className="absolute top-3 left-3 z-10 rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-wide"
+                        style={{
+                          background: "oklch(0.05 0.005 260 / 0.75)",
+                          backdropFilter: "blur(4px)",
+                          color: "var(--foreground)",
+                          border: "1px solid var(--border)",
+                        }}
+                        aria-live="polite"
+                      >
+                        {cameraFacingLabel(facingMode)}
+                      </div>
                       <button
                         type="button"
                         onClick={switchCamera}
-                        className="absolute top-3 right-3 z-10 flex h-10 w-10 items-center justify-center rounded-full transition-colors"
+                        disabled={isSwitchingCamera}
+                        className="absolute top-3 right-3 z-10 flex h-10 w-10 items-center justify-center rounded-full transition-colors disabled:opacity-60"
                         style={{
                           background: "oklch(0.05 0.005 260 / 0.75)",
                           backdropFilter: "blur(4px)",
@@ -631,8 +677,18 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                         aria-label={facingMode === "environment" ? "Usar câmera frontal" : "Usar câmera traseira"}
                         title={facingMode === "environment" ? "Câmera traseira (toque para frontal)" : "Câmera frontal (toque para traseira)"}
                       >
-                        <SwitchCamera className="h-5 w-5" />
+                        {isSwitchingCamera ? (
+                          <RefreshCw className="h-5 w-5 animate-spin" />
+                        ) : (
+                          <SwitchCamera className="h-5 w-5" />
+                        )}
                       </button>
+                      {isSwitchingCamera && (
+                        <div
+                          className="absolute inset-0 z-[5] pointer-events-none"
+                          style={{ background: "oklch(0.05 0.005 260 / 0.25)" }}
+                        />
+                      )}
                       {/* Scan overlay */}
                       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="relative w-48 h-48">
@@ -669,7 +725,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                         className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-xs font-medium"
                         style={{ background: "oklch(0.05 0.005 260 / 0.75)", backdropFilter: "blur(4px)", color: "var(--foreground)" }}
                       >
-                        Posicione o alimento no centro · {facingMode === "environment" ? "Traseira" : "Frontal"}
+                        Posicione o alimento no centro · {cameraFacingLabel(facingMode)}
                       </div>
                       </>
                     )}
@@ -678,7 +734,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
                     className="w-full gap-2 font-semibold neon-glow"
                     style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
                     onClick={captureAndScan}
-                    disabled={cameraPhase !== "live" || stability < 0.55}
+                    disabled={cameraPhase !== "live" || isSwitchingCamera || stability < 0.55}
                   >
                     <Zap className="w-4 h-4" />
                     Capturar e Analisar

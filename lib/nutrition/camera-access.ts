@@ -1,6 +1,96 @@
 export type CameraFacing = "environment" | "user"
 
+export const NUTRITION_CAMERA_FACING_KEY = "nutrition-scanner-camera-facing"
+
 export type CameraPermissionState = "unsupported" | "insecure" | "prompt" | "granted" | "denied" | "unknown"
+
+export function isMobileCameraDevice(): boolean {
+  if (typeof navigator === "undefined") return false
+  return /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+}
+
+export function loadPersistedCameraFacing(): CameraFacing {
+  if (typeof localStorage === "undefined") return "environment"
+  try {
+    const stored = localStorage.getItem(NUTRITION_CAMERA_FACING_KEY)
+    if (stored === "user" || stored === "environment") return stored
+  } catch {
+    /* quota / private mode */
+  }
+  return "environment"
+}
+
+export function persistCameraFacing(facing: CameraFacing): void {
+  if (typeof localStorage === "undefined") return
+  try {
+    localStorage.setItem(NUTRITION_CAMERA_FACING_KEY, facing)
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+/** Primeira abertura: traseira no mobile; desktop respeita persistência. */
+export function getInitialCameraFacing(): CameraFacing {
+  const persisted = loadPersistedCameraFacing()
+  if (isMobileCameraDevice()) {
+    const hasPersisted =
+      typeof localStorage !== "undefined" &&
+      (localStorage.getItem(NUTRITION_CAMERA_FACING_KEY) === "user" ||
+        localStorage.getItem(NUTRITION_CAMERA_FACING_KEY) === "environment")
+    if (!hasPersisted) return "environment"
+  }
+  return persisted
+}
+
+export function cameraFacingLabel(facing: CameraFacing): "Traseira" | "Frontal" {
+  return facing === "environment" ? "Traseira" : "Frontal"
+}
+
+const REAR_CAMERA_LABEL =
+  /\b(back|rear|environment|traseira|traseiro|wide|ultra|telephoto|macro)\b|camera\s*2|cam\s*2/i
+const FRONT_CAMERA_LABEL =
+  /\b(front|user|frontal|selfie|face|facetime|true\s*depth|depth)\b|camera\s*1|cam\s*1/i
+
+export function isRearCameraLabel(label: string): boolean {
+  const lower = label.toLowerCase()
+  if (FRONT_CAMERA_LABEL.test(lower) && !REAR_CAMERA_LABEL.test(lower)) return false
+  return REAR_CAMERA_LABEL.test(lower) || lower.includes("back") || lower.includes("rear")
+}
+
+export function isFrontCameraLabel(label: string): boolean {
+  const lower = label.toLowerCase()
+  if (REAR_CAMERA_LABEL.test(lower) && !FRONT_CAMERA_LABEL.test(lower)) return false
+  return FRONT_CAMERA_LABEL.test(lower) || lower.includes("front") || lower.includes("selfie")
+}
+
+function devicePriorityScore(device: MediaDeviceInfo, facing: CameraFacing): number {
+  const label = device.label ?? ""
+  if (!label) return facing === "environment" ? 40 : 40
+  if (facing === "environment") {
+    if (isRearCameraLabel(label)) return 100
+    if (isFrontCameraLabel(label)) return 0
+    return 30
+  }
+  if (isFrontCameraLabel(label)) return 100
+  if (isRearCameraLabel(label)) return 0
+  return 30
+}
+
+function sortVideoInputs(devices: MediaDeviceInfo[], facing: CameraFacing): MediaDeviceInfo[] {
+  return [...devices].sort((a, b) => devicePriorityScore(b, facing) - devicePriorityScore(a, facing))
+}
+
+export function inferFacingFromTrack(track: MediaStreamTrack | undefined): CameraFacing | null {
+  if (!track) return null
+  const settings = track.getSettings?.()
+  const mode = settings?.facingMode
+  if (mode === "environment") return "environment"
+  if (mode === "user") return "user"
+  const label = track.label ?? ""
+  if (isRearCameraLabel(label)) return "environment"
+  if (isFrontCameraLabel(label)) return "user"
+  return null
+}
 
 /** Só NotAllowedError real — nunca inferir por kind ou Permissions API. */
 export function isNotAllowedErrorName(name: string | undefined): boolean {
@@ -201,31 +291,50 @@ function failureFromDomError(e: unknown): CameraAccessFailure {
   }
 }
 
-/** Ordem obrigatória: video true → ideal → environment → user */
-function buildConstraintAttempts(): { label: string; constraints: MediaStreamConstraints }[] {
+/** Prioriza facing solicitado; fallback só após falha do primário. */
+function buildConstraintAttempts(
+  facing: CameraFacing,
+): { label: string; constraints: MediaStreamConstraints; facingHint: CameraFacing }[] {
+  const fallback: CameraFacing = facing === "environment" ? "user" : "environment"
   return [
-    { label: "1-video-true", constraints: { video: true, audio: false } },
     {
-      label: "2-ideal-hd",
+      label: `1-facing-${facing}`,
+      facingHint: facing,
+      constraints: { video: { facingMode: { ideal: facing } }, audio: false },
+    },
+    {
+      label: `2-facing-${facing}-hd`,
+      facingHint: facing,
       constraints: {
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: {
+          facingMode: { ideal: facing },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
         audio: false,
       },
     },
     {
-      label: "3-facing-environment",
-      constraints: { video: { facingMode: { ideal: "environment" } }, audio: false },
-    },
-    {
-      label: "4-facing-user",
-      constraints: { video: { facingMode: { ideal: "user" } }, audio: false },
-    },
-    {
-      label: "5-ideal-sd",
+      label: `3-facing-${facing}-sd`,
+      facingHint: facing,
       constraints: {
-        video: { width: { ideal: 640 }, height: { ideal: 480 } },
+        video: {
+          facingMode: { ideal: facing },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+        },
         audio: false,
       },
+    },
+    {
+      label: `4-facing-fallback-${fallback}`,
+      facingHint: fallback,
+      constraints: { video: { facingMode: { ideal: fallback } }, audio: false },
+    },
+    {
+      label: "5-video-true-last-resort",
+      facingHint: facing,
+      constraints: { video: true, audio: false },
     },
   ]
 }
@@ -314,6 +423,79 @@ async function acceptStream(stream: MediaStream, facing: CameraFacing): Promise<
   return stream
 }
 
+async function tryDeviceIds(
+  cameras: MediaDeviceInfo[],
+  facing: CameraFacing,
+  lastFailure: CameraAccessFailure,
+): Promise<{ stream: MediaStream } | { failure: CameraAccessFailure }> {
+  let failure = lastFailure
+  const sorted = sortVideoInputs(cameras, facing)
+
+  for (const cam of sorted) {
+    if (!cam.deviceId) continue
+    const shortId = cam.deviceId.slice(0, 8)
+    const labelHint = cam.label ? cam.label.slice(0, 32) : "unknown"
+    const devLabel = `device-${shortId}-${labelHint.replace(/\s+/g, "_")}`
+    logCamera("device-attempt", {
+      deviceId: shortId,
+      label: labelHint,
+      score: devicePriorityScore(cam, facing),
+    })
+
+    const result = await tryOpenStream(devLabel, {
+      video: {
+        deviceId: { ideal: cam.deviceId },
+        facingMode: { ideal: facing },
+      },
+      audio: false,
+    })
+    if ("failure" in result) {
+      failure = result.failure
+      continue
+    }
+    const accepted = await acceptStream(result.stream, facing)
+    if (accepted) {
+      logCamera("active-stream", { label: devLabel, facing, via: "deviceId" })
+      return { stream: accepted }
+    }
+    failure = {
+      kind: "stream_inactive",
+      message: "Stream sem vídeo ativo após abertura.",
+      rawName: "StreamInactive",
+    }
+  }
+
+  return { failure }
+}
+
+async function runConstraintAttempts(
+  facing: CameraFacing,
+  lastFailure: CameraAccessFailure,
+): Promise<{ stream: MediaStream } | { failure: CameraAccessFailure }> {
+  let failure = lastFailure
+  const attempts = buildConstraintAttempts(facing)
+
+  for (const { label, constraints, facingHint } of attempts) {
+    const result = await tryOpenStream(label, constraints)
+    if ("failure" in result) {
+      failure = result.failure
+      continue
+    }
+    const accepted = await acceptStream(result.stream, facingHint)
+    if (accepted) {
+      logCamera("active-stream", { label, facing: facingHint, via: "constraints" })
+      return { stream: accepted }
+    }
+    failure = {
+      kind: "stream_inactive",
+      message: "Stream sem vídeo ativo após abertura.",
+      rawName: "StreamInactive",
+    }
+  }
+
+  return { failure }
+}
+
 export async function requestCameraStream(
   facing: CameraFacing = "environment",
 ): Promise<MediaStream> {
@@ -324,10 +506,11 @@ export async function requestCameraStream(
     throw { kind: "insecure", message: "Câmera requer HTTPS (Render) ou localhost." } satisfies CameraAccessFailure
   }
 
-  logCamera("getUserMedia-start", { facing })
-  await warmUpDevices()
+  const primary = facing
+  const fallback: CameraFacing = primary === "environment" ? "user" : "environment"
 
-  const attempts = buildConstraintAttempts()
+  logCamera("getUserMedia-start", { facing: primary, fallback, mobile: isMobileCameraDevice() })
+
   let lastFailure: CameraAccessFailure = {
     kind: "unknown",
     message: "Não foi possível iniciar a câmera.",
@@ -339,40 +522,29 @@ export async function requestCameraStream(
       await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
     }
 
-    for (const { label, constraints } of attempts) {
-      const result = await tryOpenStream(label, constraints)
-      if ("failure" in result) {
-        lastFailure = result.failure
-        continue
-      }
-      const accepted = await acceptStream(result.stream, facing)
-      if (accepted) {
-        logCamera("active-stream", { label, facing })
-        return accepted
-      }
-      lastFailure = {
-        kind: "stream_inactive",
-        message: "Stream sem vídeo ativo após abertura.",
-        rawName: "StreamInactive",
-      }
-    }
+    await warmUpDevices()
+
+    const primaryResult = await runConstraintAttempts(primary, lastFailure)
+    if ("stream" in primaryResult) return primaryResult.stream
+    lastFailure = primaryResult.failure
 
     const cameras = await warmUpDevices()
-    for (const cam of cameras) {
-      if (!cam.deviceId) continue
-      const devLabel = `device-${cam.deviceId.slice(0, 8)}`
-      const result = await tryOpenStream(devLabel, {
-        video: { deviceId: { ideal: cam.deviceId } },
-        audio: false,
-      })
-      if ("failure" in result) {
-        lastFailure = result.failure
-        continue
-      }
-      const accepted = await acceptStream(result.stream, facing)
-      if (accepted) {
-        logCamera("active-stream", { label: devLabel, facing })
-        return accepted
+    if (cameras.length > 0) {
+      const deviceResult = await tryDeviceIds(cameras, primary, lastFailure)
+      if ("stream" in deviceResult) return deviceResult.stream
+      lastFailure = deviceResult.failure
+    }
+
+    if (primary === "environment") {
+      logCamera("facing-fallback", { from: primary, to: fallback })
+      const fallbackResult = await runConstraintAttempts(fallback, lastFailure)
+      if ("stream" in fallbackResult) return fallbackResult.stream
+      lastFailure = fallbackResult.failure
+
+      if (cameras.length > 0) {
+        const fallbackDevices = await tryDeviceIds(cameras, fallback, lastFailure)
+        if ("stream" in fallbackDevices) return fallbackDevices.stream
+        lastFailure = fallbackDevices.failure
       }
     }
   }
