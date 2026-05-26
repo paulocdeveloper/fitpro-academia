@@ -49,6 +49,14 @@ export async function POST(req: Request) {
   const dataId = extractDataId(payload, url)
   const type = extractType(payload, url)
 
+  console.info("[mp:webhook]", {
+    method: "POST",
+    type,
+    dataId,
+    action: payload.action ?? null,
+    live_mode: payload.live_mode ?? null,
+  })
+
   if (getMercadoPagoWebhookSecret()) {
     if (!verifyMercadoPagoWebhookSignature(req, dataId)) {
       console.warn("webhook MP: assinatura inválida", { type, dataId })
@@ -61,8 +69,9 @@ export async function POST(req: Request) {
 
   try {
     await processNotification(type, dataId)
+    console.info("[mp:webhook] processed", { type, dataId })
   } catch (e) {
-    console.error("webhook MP process", e)
+    console.error("[mp:webhook] process error", { type, dataId, error: e })
   }
 
   return NextResponse.json({ ok: true }, { status: 200 })

@@ -4,6 +4,8 @@ import { NextResponse } from "next/server"
 import { getDbConnectionInfo } from "@/lib/db-config"
 import { mapDbConnectionError } from "@/lib/db-errors"
 import { query } from "@/lib/db"
+import { getEnvSummaryForHealth } from "@/lib/env"
+import { isMercadoPagoConfigured } from "@/lib/mercadopago/config"
 import { getOpenAIConfig } from "@/lib/nutrition/openai-config"
 
 function envFilesStatus() {
@@ -49,6 +51,7 @@ export async function GET() {
         ? { id: master[0].id, perfil: master[0].perfil, configured: true }
         : null,
       env: {
+        ...getEnvSummaryForHealth(),
         DATABASE_URL_set: Boolean(process.env.DATABASE_URL),
         NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL ?? null,
         NEXT_PUBLIC_SUPABASE_ANON_KEY_set: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
@@ -57,6 +60,9 @@ export async function GET() {
         MYSQL_URL: process.env.MYSQL_URL ?? null,
         OPENAI_API_KEY_set: getOpenAIConfig().configured,
         OPENAI_VISION_MODEL: getOpenAIConfig().model,
+        MERCADOPAGO_ACCESS_TOKEN_set: isMercadoPagoConfigured(),
+        MERCADOPAGO_WEBHOOK_SECRET_set: Boolean(process.env.MERCADOPAGO_WEBHOOK_SECRET?.trim()),
+        MERCADOPAGO_USE_MOCK: process.env.MERCADOPAGO_USE_MOCK === "true",
       },
     })
   } catch (e) {

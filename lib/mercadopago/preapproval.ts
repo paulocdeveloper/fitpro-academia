@@ -49,11 +49,13 @@ export async function createPendingPreapproval(input: {
   payerEmail: string
 }): Promise<{ preapprovalId: string; checkoutUrl: string }> {
   const urls = subscriptionBackUrls()
+  const webhookBase = urls.back.replace(/\/minha-assinatura$/, "")
   const body = {
     reason: PREMIUM_PLAN.name,
     external_reference: fitproExternalReference(input.userId, input.academiaId),
     payer_email: input.payerEmail,
     back_url: urls.back,
+    notification_url: `${webhookBase}/api/subscription/webhook?source_news=webhooks`,
     status: "pending",
     auto_recurring: {
       frequency: 1,

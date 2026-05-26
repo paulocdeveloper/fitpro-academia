@@ -48,6 +48,12 @@ export async function syncMercadoPagoPreapproval(preapprovalId: string): Promise
       nextBillingAt: nextBilling,
       extendFromNow: true,
     })
+    console.info("[mp:sync] premium ativado", {
+      preapprovalId,
+      userId: ref.userId,
+      academiaId: ref.academiaId,
+      nextBilling: mp.next_payment_date ?? null,
+    })
     return
   }
 

@@ -90,6 +90,15 @@ export async function POST(req: Request) {
       paymentStatus: "pending",
     })
 
+    console.info("[mp:checkout]", {
+      userId: auth.session.userId,
+      academiaId: auth.session.academiaId,
+      preapprovalId,
+      checkoutUrl,
+      plan: PREMIUM_PLAN.priceBrl,
+      provider: "mercadopago",
+    })
+
     return NextResponse.json({
       ok: true,
       provider: "mercadopago",
