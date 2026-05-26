@@ -44,7 +44,7 @@ export async function POST(req: Request) {
       )
     } catch (e: unknown) {
       if (isDuplicateEntry(e)) {
-        return NextResponse.json({ error: "Este e-mail já está registado." }, { status: 409 })
+        return NextResponse.json({ error: "Este e-mail já está registrado." }, { status: 409 })
       }
       throw e
     }

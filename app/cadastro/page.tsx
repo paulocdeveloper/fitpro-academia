@@ -59,7 +59,7 @@ export default function CadastroAcademiaPage() {
             Criar conta SaaS
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Regista a tua academia e o primeiro administrador. Os dados ficam isolados de outras academias.
+            Registre a sua academia e o primeiro administrador. Os dados ficam isolados das outras academias.
           </p>
         </div>
 

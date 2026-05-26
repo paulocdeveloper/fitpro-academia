@@ -81,7 +81,7 @@ export async function POST(req: Request) {
     return res
   } catch (e: unknown) {
     if ((e as Error)?.message === "DUPLICATE_EMAIL" || (e as { code?: string }).code === "DUPLICATE_EMAIL") {
-      return NextResponse.json({ error: "Este e-mail já está registado." }, { status: 409 })
+      return NextResponse.json({ error: "Este e-mail já está registrado." }, { status: 409 })
     }
     console.error("POST /api/academias/registro", e)
     const msg = e instanceof Error ? e.message : ""
