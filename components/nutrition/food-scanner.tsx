@@ -23,7 +23,6 @@ import {
   logCamera,
   mapFailureToCameraPhase,
   persistCameraFacing,
-  queryCameraPermission,
   releaseCameraHardware,
   requestCameraStream,
   stopMediaStream,
@@ -61,7 +60,38 @@ const SCAN_STEPS = [
   "Estimando porções e macros...",
 ]
 
-export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => void }) {
+type FoodScannerProps = {
+  onAddFood?: (food: ScannedFood) => void
+  /** Oculta o botão padrão — use com onRegisterOpen + FoodScannerOpenButton. */
+  hideTrigger?: boolean
+  /** Registra openScanner para acionar de outro lugar (uma instância por página). */
+  onRegisterOpen?: (open: (() => void) | null) => void
+}
+
+export function FoodScannerOpenButton({
+  onOpen,
+  size = "sm",
+  className,
+}: {
+  onOpen: () => void
+  size?: "sm" | "default" | "lg"
+  className?: string
+}) {
+  return (
+    <Button
+      type="button"
+      size={size}
+      className={className ?? "gap-2 text-xs font-semibold neon-glow"}
+      style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
+      onClick={onOpen}
+    >
+      <Camera className="w-3.5 h-3.5" />
+      Escanear Comida
+    </Button>
+  )
+}
+
+export function FoodScanner({ onAddFood, hideTrigger = false, onRegisterOpen }: FoodScannerProps) {
   const [state, setState] = useState<ScannerState>("idle")
   const [analysis, setAnalysis] = useState<MealAnalysisResult | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
@@ -95,6 +125,17 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     return () => {
       mountedRef.current = false
     }
+  }, [])
+
+  /** Garante modal fechado e câmera desligada ao montar (navegação /dietas). */
+  useEffect(() => {
+    stopCamera()
+    setState("idle")
+    setCameraPhase("prompt")
+    setCameraError(null)
+    setCameraFailure(null)
+    setIsSwitchingCamera(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apenas no mount
   }, [])
 
   const stopCamera = useCallback(() => {
@@ -235,40 +276,31 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
     [activateLiveStream, applyCameraFailure, facingMode, syncFacingFromStream],
   )
 
-  /** Abre modal; reutiliza stream vivo se existir. */
+  /** Abre modal apenas — câmera só inicia após "Permitir câmera" (clique manual). */
   const openScanner = useCallback(() => {
     setQualityHint(null)
-    setState("camera")
     setIsSwitchingCamera(false)
-
-    const initialFacing = getInitialCameraFacing()
-    setFacingMode(initialFacing)
+    setFacingMode(getInitialCameraFacing())
+    setCameraError(null)
+    setCameraFailure(null)
 
     if (!isGetUserMediaSupported()) {
+      setState("camera")
       setCameraPhase("unsupported")
       setCameraError("Seu navegador não suporta acesso à câmera.")
       return
     }
 
-    if (streamRef.current && isStreamLive(streamRef.current)) {
-      logCamera("resume-existing-stream")
-      const requestId = ++cameraRequestId.current
-      setCameraPhase("loading")
-      setCameraError(null)
-      syncFacingFromStream(streamRef.current)
-      void activateLiveStream(streamRef.current, requestId)
-      return
-    }
-
     stopCamera()
-    setCameraError(null)
-    setCameraFailure(null)
-    setCameraPhase("loading")
-    void queryCameraPermission().then((perm) => {
-      logCamera("open-permission-hint", { perm, initialFacing })
-    })
-    requestCameraPermission(initialFacing)
-  }, [activateLiveStream, requestCameraPermission, stopCamera, syncFacingFromStream])
+    setState("camera")
+    setCameraPhase("prompt")
+    logCamera("scanner-opened-manual", { autoCamera: false })
+  }, [stopCamera])
+
+  useEffect(() => {
+    onRegisterOpen?.(openScanner)
+    return () => onRegisterOpen?.(null)
+  }, [onRegisterOpen, openScanner])
 
   const switchCamera = useCallback(() => {
     const next: CameraFacing = facingMode === "environment" ? "user" : "environment"
@@ -496,16 +528,7 @@ export function FoodScanner({ onAddFood }: { onAddFood?: (food: ScannedFood) => 
 
   return (
     <>
-      {/* Botão de acionar */}
-      <Button
-        size="sm"
-        className="gap-2 text-xs font-semibold neon-glow"
-        style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
-        onClick={openScanner}
-      >
-        <Camera className="w-3.5 h-3.5" />
-        Escanear Comida
-      </Button>
+      {!hideTrigger && <FoodScannerOpenButton onOpen={openScanner} />}
 
       {/* Overlay modal */}
       {state !== "idle" && (

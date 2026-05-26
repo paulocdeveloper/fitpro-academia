@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useRef, useState, type FormEvent } from "react"
 import { Navbar } from "@/components/layout/navbar"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,7 +13,11 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { FoodScanner, type ScannedFood } from "@/components/nutrition/food-scanner"
+import {
+  FoodScanner,
+  FoodScannerOpenButton,
+  type ScannedFood,
+} from "@/components/nutrition/food-scanner"
 import { useIsStaff } from "@/lib/hooks/use-is-staff"
 import {
   Coffee,
@@ -91,10 +95,10 @@ type Refeicao = {
 
 function RefeicaoCard({
   refeicao,
-  onFoodAdded,
+  onOpenScanner,
 }: {
   refeicao: Refeicao
-  onFoodAdded: (food: ScannedFood) => void
+  onOpenScanner: () => void
 }) {
   const [open, setOpen] = useState(false)
   const Icon = refeicao.icon
@@ -146,7 +150,7 @@ function RefeicaoCard({
             <span className="text-sm font-semibold">Total da refeição</span>
             <div className="flex items-center gap-3">
               <span className="text-sm font-semibold neon-text">{totalKcal} kcal</span>
-              <FoodScanner onAddFood={onFoodAdded} />
+              <FoodScannerOpenButton onOpen={onOpenScanner} />
             </div>
           </div>
         </div>
@@ -164,6 +168,7 @@ function newRefeicaoId() {
 
 export default function DietasPage() {
   const { isStaff, isFitness, user } = useIsStaff()
+  const openScannerRef = useRef<(() => void) | null>(null)
   const [dietaData, setDietaData] = useState(dietasInicial)
   const [addRefeicaoOpen, setAddRefeicaoOpen] = useState(false)
   const [novaRefeicaoNome, setNovaRefeicaoNome] = useState("")
@@ -255,9 +260,16 @@ export default function DietasPage() {
             <p className="text-sm text-muted-foreground">
               Use o escaneador com IA Vision para analisar calorias e macros da sua refeição.
             </p>
-            <FoodScanner onAddFood={handleFoodAdded} />
+            <FoodScannerOpenButton onOpen={() => openScannerRef.current?.()} />
           </div>
         </div>
+        <FoodScanner
+          hideTrigger
+          onRegisterOpen={(fn) => {
+            openScannerRef.current = fn
+          }}
+          onAddFood={handleFoodAdded}
+        />
       </div>
     )
   }
@@ -337,14 +349,26 @@ export default function DietasPage() {
                 <Plus className="w-3.5 h-3.5" />
                 Adicionar Refeição
               </Button>
-              <FoodScanner onAddFood={handleFoodAdded} />
+              <FoodScannerOpenButton onOpen={() => openScannerRef.current?.()} />
             </div>
           </div>
           {dieta.refeicoes.map((r) => (
-            <RefeicaoCard key={r.id} refeicao={r} onFoodAdded={handleFoodAdded} />
+            <RefeicaoCard
+              key={r.id}
+              refeicao={r}
+              onOpenScanner={() => openScannerRef.current?.()}
+            />
           ))}
         </div>
       </div>
+
+      <FoodScanner
+        hideTrigger
+        onRegisterOpen={(fn) => {
+          openScannerRef.current = fn
+        }}
+        onAddFood={handleFoodAdded}
+      />
 
       <Dialog
         open={addRefeicaoOpen}
