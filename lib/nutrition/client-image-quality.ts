@@ -1,5 +1,23 @@
 import { analyzeImageQuality, type ImageQualityReport } from "@/lib/nutrition/image-quality"
 
+function estimateBase64Bytes(dataUrl: string): number {
+  const trimmed = dataUrl.trim()
+  const comma = trimmed.indexOf(",")
+  const base64 = comma >= 0 ? trimmed.slice(comma + 1) : trimmed
+  return Math.floor((base64.length * 3) / 4)
+}
+
+function encodeJpegUnderLimit(canvas: HTMLCanvasElement, maxBytes: number) {
+  const qualities = [0.88, 0.84, 0.8, 0.76, 0.72, 0.68]
+  let best = canvas.toDataURL("image/jpeg", qualities[0])
+  for (const q of qualities) {
+    const dataUrl = q === qualities[0] ? best : canvas.toDataURL("image/jpeg", q)
+    best = dataUrl
+    if (estimateBase64Bytes(dataUrl) <= maxBytes) return dataUrl
+  }
+  return best
+}
+
 export function captureFrameQuality(
   video: HTMLVideoElement,
   canvas: HTMLCanvasElement,
@@ -22,7 +40,8 @@ export function captureFrameQuality(
   ctx.drawImage(video, 0, 0, cw, ch)
   const imageData = ctx.getImageData(0, 0, cw, ch)
   const report = analyzeImageQuality(imageData.data, cw, ch)
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.88)
+  // Mantém margem abaixo do limite típico do Vision (4MB) para reduzir falhas e custo.
+  const dataUrl = encodeJpegUnderLimit(canvas, 3.2 * 1024 * 1024)
   return { report, dataUrl, pixels: Array.from(imageData.data) }
 }
 

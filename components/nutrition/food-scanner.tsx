@@ -54,10 +54,10 @@ type ScannerState = "idle" | "camera" | "scanning" | "detected" | "not_found" | 
 type CameraPhase = "prompt" | "loading" | "live" | "denied" | "failed" | "unsupported"
 
 const SCAN_STEPS = [
-  "Enviando foto do prato...",
-  "Analisando comida com IA...",
-  "Identificando alimentos no prato...",
+  "IA analisando refeição...",
+  "Identificando alimentos brasileiros...",
   "Estimando porções e macros...",
+  "Calibrando com base TACO...",
 ]
 
 type FoodScannerProps = {
@@ -106,6 +106,7 @@ export function FoodScanner({
   const [analysis, setAnalysis] = useState<MealAnalysisResult | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [scanStep, setScanStep] = useState(0)
+  const [scanProgress, setScanProgress] = useState(0)
   const [stability, setStability] = useState(0)
   const [qualityHint, setQualityHint] = useState<string | null>(null)
 
@@ -365,11 +366,10 @@ export function FoodScanner({
     }
 
     if (!captured.report.ok) {
-      setPreviewImage(captured.dataUrl)
-      setQualityHint(captured.report.issues.join(" "))
-      setState("poor_quality")
-      stopCamera()
-      return
+      setQualityHint(
+        captured.report.issues.join(" ") ||
+          "Melhore a iluminação e aproxime mais o prato — a IA ainda tentará estimar.",
+      )
     }
 
     if (stability < 0.55) {
@@ -380,11 +380,17 @@ export function FoodScanner({
     setPreviewImage(captured.dataUrl)
     setState("scanning")
     setScanStep(0)
+    setScanProgress(8)
     stopCamera()
 
     const stepTimer = window.setInterval(() => {
       setScanStep((s) => Math.min(s + 1, SCAN_STEPS.length - 1))
-    }, 700)
+      setScanProgress((p) => Math.min(92, p + 14))
+    }, 650)
+
+    const progressTimer = window.setInterval(() => {
+      setScanProgress((p) => Math.min(95, p + 3))
+    }, 400)
 
     try {
       const res = await fetch("/api/nutrition/analyze", {
@@ -398,10 +404,13 @@ export function FoodScanner({
             score: captured.report.score,
             issues: captured.report.issues,
           },
+          pixels: captured.pixels,
         }),
       })
       const data = (await res.json().catch(() => null)) as MealAnalysisResult | { error?: string }
       clearInterval(stepTimer)
+      clearInterval(progressTimer)
+      setScanProgress(100)
 
       const premiumRequired =
         !res.ok &&
@@ -422,34 +431,34 @@ export function FoodScanner({
       const isAnalyzePayload =
         result && typeof result === "object" && "engine" in result && Array.isArray(result.items)
 
-      if (!res.ok && res.status !== 422 && !isAnalyzePayload) {
-        setAnalysis(null)
-        setState("not_found")
-        setQualityHint(typeof data?.error === "string" ? data.error : "Falha na analise.")
-        return
-      }
-
       if (!isAnalyzePayload) {
         setAnalysis(null)
         setState("not_found")
-        setQualityHint("Resposta inválida do servidor.")
+        setQualityHint(typeof data?.error === "string" ? data.error : "Resposta inválida do servidor.")
         return
       }
       setAnalysis(result)
       const hasItems = result.items.length > 0
-      if (result.ok && hasItems) {
+      if (hasItems) {
         setState("detected")
-      } else if (hasItems) {
-        setQualityHint(result.warning ?? result.error ?? "Revise os itens detectados.")
-        setState("detected")
+        if (result.warning || result.error || !result.ok) {
+          setQualityHint(
+            result.warning ??
+              result.error ??
+              (result.engine === "heuristic"
+                ? "Estimativa local BR — revise porções."
+                : "Revise os itens antes de salvar."),
+          )
+        }
       } else {
-        setQualityHint(result.error ?? "Confiança insuficiente para identificar o prato.")
-        setState(result.imageQuality?.ok === false ? "poor_quality" : "not_found")
+        setQualityHint(result.error ?? "Tente aproximar mais e melhorar a iluminação.")
+        setState("poor_quality")
       }
     } catch {
       clearInterval(stepTimer)
+      clearInterval(progressTimer)
       setState("not_found")
-      setQualityHint("Erro de conexão ao analisar a imagem.")
+      setQualityHint("Erro de conexão — tente novamente.")
     }
   }
 
@@ -603,7 +612,7 @@ export function FoodScanner({
                 <div>
                   <p className="font-semibold text-sm" style={{ fontFamily: "var(--font-space-grotesk)" }}>
                     {state === "camera" && "Escanear Comida"}
-                    {state === "scanning" && "Analisando comida com IA"}
+                    {state === "scanning" && "IA analisando refeição..."}
                     {state === "detected" && "Análise Completa"}
                     {state === "not_found" && "Não Identificado"}
                     {state === "poor_quality" && "Imagem Inadequada"}
@@ -796,7 +805,7 @@ export function FoodScanner({
                         className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-xs font-medium"
                         style={{ background: "oklch(0.05 0.005 260 / 0.75)", backdropFilter: "blur(4px)", color: "var(--foreground)" }}
                       >
-                        Posicione o alimento no centro · {cameraFacingLabel(facingMode)}
+                        Aproxime o prato · boa luz · mantenha estabilidade
                       </div>
                       </>
                     )}
@@ -836,11 +845,23 @@ export function FoodScanner({
                       </div>
                     </div>
                     <div className="text-center space-y-1 w-full">
-                      <p className="font-semibold text-sm">Analisando comida com IA</p>
+                      <p className="font-semibold text-sm">IA analisando refeição...</p>
                       <p className="text-xs text-muted-foreground animate-pulse">
-                        {visionReady ? `Motor: ${visionModel ?? "GPT-4o"}` : "Conectando Vision..."} ·{" "}
+                        {visionReady ? `GPT-4o Vision · ${visionModel ?? "gpt-4o"}` : "Modo estimativa BR"} ·{" "}
                         {SCAN_STEPS[scanStep]}
                       </p>
+                    </div>
+                    <div className="w-full space-y-1">
+                      <div className="flex justify-between text-[10px] text-muted-foreground px-0.5">
+                        <span>Progresso</span>
+                        <span>{scanProgress}%</span>
+                      </div>
+                      <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--secondary)" }}>
+                        <div
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{ width: `${scanProgress}%`, background: "var(--primary)" }}
+                        />
+                      </div>
                     </div>
                     <div className="w-full space-y-1.5">
                       {SCAN_STEPS.map((step, i) => (

@@ -15,6 +15,8 @@ export async function GET(req: Request) {
       configured,
       model: configured ? model : null,
       engine: configured ? "openai" : "heuristic",
+      fallbackBr: true,
+      chatModel: process.env.OPENAI_CHAT_MODEL?.trim() || "gpt-4o-mini",
     },
   })
 }

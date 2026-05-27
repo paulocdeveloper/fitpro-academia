@@ -12,7 +12,9 @@ import type {
   PerfilTreinoInteligente,
   TreinoInteligenteGerado,
 } from "@/lib/treino-inteligente/generator"
-import { Activity, Brain, RefreshCw, Sparkles, TrendingUp, type LucideIcon } from "lucide-react"
+import Link from "next/link"
+import { Activity, Brain, MessageCircle, RefreshCw, Sparkles, TrendingUp, type LucideIcon } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 
 type HistoricoItem = { created_at: string; progresso_pct: number; imc: number }
@@ -114,6 +116,15 @@ export function TreinoInteligenteView() {
 
       <div className="flex-1 space-y-6 p-4 md:p-6">
         {treino && <SummaryCards treino={treino} />}
+
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" asChild className="gap-2">
+            <Link href="/coach-ia">
+              <MessageCircle className="h-4 w-4" />
+              Coach IA
+            </Link>
+          </Button>
+        </div>
 
         <Tabs defaultValue="treino" className="w-full">
           <TabsList className="grid w-full max-w-md grid-cols-3">

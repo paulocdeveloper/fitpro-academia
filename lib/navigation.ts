@@ -12,6 +12,7 @@ import {
   Sparkles,
   TrendingUp,
   UserCircle,
+  MessageCircle,
 } from "lucide-react"
 import type { UserRole } from "@/lib/auth/roles"
 import { isAlunoRole, isStaffRole, isUsuarioRole } from "@/lib/auth/roles"
@@ -42,6 +43,7 @@ const staffNav: NavGroup[] = [
     label: "Saúde",
     items: [
       { href: "/dietas", label: "Nutrição", icon: Salad },
+      { href: "/coach-ia", label: "Coach IA", icon: MessageCircle },
       { href: "/agenda", label: "Agenda", icon: CalendarDays },
     ],
   },
@@ -67,6 +69,7 @@ const alunoNav: NavGroup[] = [
     label: "Saúde",
     items: [
       { href: "/dietas", label: "Nutrição", icon: Salad },
+      { href: "/coach-ia", label: "Coach IA", icon: MessageCircle },
       { href: "/agenda", label: "Agenda", icon: CalendarDays },
     ],
   },
@@ -78,6 +81,7 @@ const usuarioNav: NavGroup[] = [
     items: [
       { href: "/exercicios", label: "Exercícios", icon: BookOpen },
       { href: "/dietas", label: "Nutrição", icon: Salad, badge: "Premium" },
+      { href: "/coach-ia", label: "Coach IA", icon: MessageCircle, badge: "Premium" },
       { href: "/treino-inteligente", label: "IA Treino", icon: Sparkles },
       { href: "/evolucao", label: "Evolução", icon: TrendingUp },
       { href: "/perfil", label: "Perfil", icon: UserCircle },

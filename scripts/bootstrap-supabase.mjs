@@ -2,7 +2,7 @@
  * Bootstrap PostgreSQL / Supabase: aplica schema + seeds.
  * Uso: npm run db:bootstrap  (com DATABASE_URL postgresql:// no .env)
  */
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import pg from "pg"
 import { loadEnvFile, getDbDialect, resolvePostgresConfig } from "./db-env.mjs"
@@ -24,6 +24,8 @@ if (!cfg.connectionString || cfg.connectionString.includes("[PROJECT-REF]") || c
 }
 const schemaPath = resolve(process.cwd(), "data/supabase_fitpro_schema.sql")
 const sql = readFileSync(schemaPath, "utf8")
+const fitnessAiPath = resolve(process.cwd(), "data/migrate_fitness_ai.sql")
+const fitnessAiSql = existsSync(fitnessAiPath) ? readFileSync(fitnessAiPath, "utf8") : ""
 
 const ssl =
   cfg.host.includes("supabase") || process.env.DB_SSL === "true"
@@ -59,6 +61,12 @@ try {
   console.log("A aplicar schema (data/supabase_fitpro_schema.sql)…")
   await client.query(sql)
   console.log("Schema aplicado")
+
+  if (fitnessAiSql) {
+    console.log("A aplicar migrate_fitness_ai.sql (Coach IA)…")
+    await client.query(fitnessAiSql)
+    console.log("Tabela fitness_ai_memory OK")
+  }
 
   for (const table of REQUIRED_TABLES) {
     const r = await client.query(

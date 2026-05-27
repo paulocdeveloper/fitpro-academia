@@ -1,70 +1,17 @@
 import { NextResponse } from "next/server"
 import { requirePremiumNutrition } from "@/lib/api/require-premium"
-import { analyzeImageQuality } from "@/lib/nutrition/image-quality"
-import { isOpenAIConfigured } from "@/lib/nutrition/openai-config"
-import { analyzeFood } from "@/lib/nutrition/openai-vision"
+import { analyzeMealComplete } from "@/lib/nutrition/analyze-meal"
 import type { MealAnalysisResult } from "@/lib/nutrition/types"
 
 type Body = {
   image?: string
   quality?: MealAnalysisResult["imageQuality"]
+  /** RGBA do frame (opcional) para fallback por cor no servidor. */
+  pixels?: number[]
 }
 
 function logRoute(event: string, payload: Record<string, unknown>) {
   console.info(`[nutrition-analyze:route:${event}]`, payload)
-}
-
-function rejectQuality(imageQuality: MealAnalysisResult["imageQuality"]) {
-  logRoute("rejected", { engine: "openai", reason: "image_quality", issues: imageQuality.issues })
-  return NextResponse.json({
-    ok: false,
-    confianca_geral: 0,
-    qualidade_refeicao: "regular",
-    resumo: "Imagem rejeitada pela validação de qualidade.",
-    items: [],
-    totais: { kcal: 0, proteinas_g: 0, carboidratos_g: 0, gorduras_g: 0, fibras_g: 0 },
-    niveis: { proteina: "baixa", carboidrato: "baixa", gordura: "baixa" },
-    imageQuality,
-    engine: "openai",
-    error: imageQuality.issues.join(" "),
-  } satisfies MealAnalysisResult)
-}
-
-function missingOpenAI(imageQuality: MealAnalysisResult["imageQuality"]) {
-  logRoute("rejected", { engine: "fallback", reason: "OPENAI_API_KEY ausente" })
-  return NextResponse.json(
-    {
-      ok: false,
-      confianca_geral: 0,
-      qualidade_refeicao: "regular",
-      resumo: "IA Vision não configurada no servidor.",
-      items: [],
-      totais: { kcal: 0, proteinas_g: 0, carboidratos_g: 0, gorduras_g: 0, fibras_g: 0 },
-      niveis: { proteina: "baixa", carboidrato: "baixa", gordura: "baixa" },
-      imageQuality,
-      engine: "openai",
-      error: "Configure OPENAI_API_KEY no Render para reconhecimento real com GPT-4o Vision.",
-    } satisfies MealAnalysisResult,
-    { status: 503 },
-  )
-}
-
-function failureOpenAI(
-  imageQuality: MealAnalysisResult["imageQuality"],
-  message: string,
-): MealAnalysisResult {
-  return {
-    ok: false,
-    confianca_geral: 0,
-    qualidade_refeicao: "regular",
-    resumo: "Falha na análise Vision.",
-    items: [],
-    totais: { kcal: 0, proteinas_g: 0, carboidratos_g: 0, gorduras_g: 0, fibras_g: 0 },
-    niveis: { proteina: "baixa", carboidrato: "baixa", gordura: "baixa" },
-    imageQuality,
-    engine: "openai",
-    error: message,
-  }
 }
 
 export async function POST(req: Request) {
@@ -88,44 +35,39 @@ export async function POST(req: Request) {
     imageQuality = { ok: true, score: 70, issues: [] }
   }
 
-  if (!imageQuality.ok) {
-    return rejectQuality(imageQuality)
-  }
-
-  if (!isOpenAIConfigured()) {
-    return missingOpenAI(imageQuality)
+  // Mesmo com qualidade baixa, seguimos com fallback BR (nunca tela vazia).
+  const qualityForAnalyze = {
+    ...imageQuality,
+    ok: true,
+    issues: imageQuality.issues ?? [],
   }
 
   try {
-    const outcome = await analyzeFood(image, imageQuality)
+    const result = await analyzeMealComplete({
+      image,
+      imageQuality: qualityForAnalyze,
+      pixels: Array.isArray(body.pixels) ? body.pixels : undefined,
+    })
 
-    if (outcome.kind === "not_configured") {
-      return missingOpenAI(imageQuality)
-    }
+    logRoute("ok", {
+      engine: result.engine,
+      model: result.model ?? null,
+      items: result.items.length,
+      confianca: result.confianca_geral,
+      ok: result.ok,
+    })
 
-    if (outcome.kind === "success") {
-      logRoute("ok", {
-        engine: outcome.result.engine,
-        model: outcome.result.model,
-        items: outcome.result.items.length,
-        confianca: outcome.result.confianca_geral,
-      })
-      return NextResponse.json(outcome.result)
-    }
-
-    if (outcome.kind === "low_confidence") {
-      logRoute("low_confidence", {
-        engine: outcome.result.engine,
-        confianca: outcome.result.confianca_geral,
-        error: outcome.result.error,
-      })
-      return NextResponse.json(outcome.result, { status: 422 })
-    }
-
-    logRoute("api_error", { engine: "openai", message: outcome.message })
-    return NextResponse.json(failureOpenAI(imageQuality, outcome.message), { status: 503 })
+    return NextResponse.json({
+      ...result,
+      ok: result.items.length > 0 ? true : result.ok,
+      imageQuality,
+    })
   } catch (e) {
     console.error("POST /api/nutrition/analyze", e)
-    return NextResponse.json({ error: "Falha na análise da imagem." }, { status: 500 })
+    const fallback = await import("@/lib/nutrition/br-fallback").then((m) =>
+      m.analyzeWithBrFallback(qualityForAnalyze),
+    )
+    logRoute("fallback-after-error", { items: fallback.items.length })
+    return NextResponse.json({ ...fallback, ok: true, imageQuality })
   }
 }

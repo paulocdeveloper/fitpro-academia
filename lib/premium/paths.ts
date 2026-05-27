@@ -1,5 +1,5 @@
 /** Rotas que exigem Premium Nutrição (role `usuario`). Sem dependência de DB — seguro no client. */
-export const PREMIUM_NUTRITION_PREFIXES = ["/dietas", "/nutricao"] as const
+export const PREMIUM_NUTRITION_PREFIXES = ["/dietas", "/nutricao", "/coach-ia"] as const
 
 export function isPremiumNutritionPath(pathname: string): boolean {
   return PREMIUM_NUTRITION_PREFIXES.some(

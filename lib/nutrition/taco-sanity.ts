@@ -21,6 +21,12 @@ const TACO_PER_100G: Array<{
   { pattern: /p[aã]o|torrada/i, p: 8, c: 49, g: 3, kcal: 270 },
   { pattern: /refrigerante|suco|bebida|caf[eé]|[aá]gua/i, p: 0, c: 10, g: 0, kcal: 40 },
   { pattern: /doce|bolo|sobremesa|chocolate/i, p: 3, c: 45, g: 12, kcal: 300 },
+  { pattern: /pizza/i, p: 11, c: 33, g: 10, kcal: 266 },
+  { pattern: /hamb[uú]rguer|burger|x-burger/i, p: 17, c: 24, g: 14, kcal: 295 },
+  { pattern: /a[cç]a[ií]/i, p: 1.5, c: 18, g: 4, kcal: 110 },
+  { pattern: /tapioca|beiju/i, p: 1, c: 52, g: 1, kcal: 220 },
+  { pattern: /whey|shake prote/i, p: 80, c: 8, g: 5, kcal: 400 },
+  { pattern: /banana|ma[cç][aã]/i, p: 1.1, c: 23, g: 0.3, kcal: 89 },
 ]
 
 function scalePer100g(ref: (typeof TACO_PER_100G)[0], grams: number) {

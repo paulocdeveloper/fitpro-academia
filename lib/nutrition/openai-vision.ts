@@ -5,23 +5,24 @@ import { getOpenAIConfig } from "@/lib/nutrition/openai-config"
 import { assertVisionImageSize, toVisionDataUrl } from "@/lib/nutrition/image-upload"
 import { filterValidItems, normalizeMacroItem } from "@/lib/nutrition/validate-macros"
 import { refineAllItems } from "@/lib/nutrition/taco-sanity"
+import { fetchOpenAIWithRetry } from "@/lib/openai-retry"
 
-const SYSTEM_PROMPT = `Você é nutricionista e especialista em visão computacional focado em REFEIÇÕES BRASILEIRAS.
-Analise SOMENTE alimentos claramente visíveis na foto. Responda em português do Brasil.
-Retorne JSON válido, sem markdown, seguindo o schema pedido.`
+const SYSTEM_PROMPT = `Você é nutricionista brasileiro e especialista em visão computacional (GPT-4o Vision).
+Foco: refeições e pratos típicos do BRASIL. Responda SOMENTE com JSON válido, sem markdown.
+Identifique cada alimento visível com nome específico em português do Brasil.`
 
-const USER_PROMPT = `Analise esta foto de refeição/prato brasileiro e retorne JSON:
+const USER_PROMPT = `Analise a foto e retorne JSON:
 {
   "confianca_geral": number (0-100),
-  "resumo": string (1 frase descrevendo o prato),
+  "resumo": string (1 frase humana descrevendo o prato),
   "qualidade_refeicao": "excelente"|"boa"|"regular"|"pobre",
   "items": [
     {
-      "nome": string (específico: "Arroz branco", "Feijão carioca", "Peito de frango grelhado"),
+      "nome": string,
       "categoria": "proteina"|"carboidrato"|"gordura"|"fibra"|"vegetal"|"bebida"|"industrializado"|"doce"|"fast_food",
       "categorias": string[],
-      "quantidade_g": number (porção VISÍVEL em gramas),
-      "confianca": number (0-100 por item),
+      "quantidade_g": number,
+      "confianca": number (0-100),
       "kcal": number,
       "proteinas_g": number,
       "carboidratos_g": number,
@@ -31,22 +32,20 @@ const USER_PROMPT = `Analise esta foto de refeição/prato brasileiro e retorne 
   ]
 }
 
-REGRAS:
-1. Liste TODOS os alimentos visíveis (prato composto: arroz + feijão + frango + salada, etc.).
-2. Macros são da PORÇÃO VISÍVEL (não por 100g). Use TACO/porções típicas no Brasil.
-3. kcal ≈ (proteinas×4) + (carboidratos×4) + (gorduras×9).
-4. Exemplos comuns:
-   - Arroz branco → carboidrato (~150-200g no prato)
-   - Feijão preto/carioca → carboidrato + proteina (~100-150g)
-   - Frango grelhado/assado → proteina (~100-180g)
-   - Carne bovina/suína → proteina
-   - Salada/legumes → vegetal + fibra
-   - Ovo → proteina + gordura
-   - Macarrão, batata, mandioca → carboidrato
-   - Refrigerante, suco, café, água, cerveja → bebida (inclua copo/garrafa visível)
-5. NÃO invente alimentos fora da imagem. Em dúvida, reduza confianca do item.
-6. Se não for comida ou estiver ilegível: confianca_geral < 35 e items: [].
-7. Separe itens distintos (não agrupe "prato feito" em um único item genérico).`
+ALIMENTOS PRIORITÁRIOS (reconheça com precisão quando visíveis):
+arroz branco, feijão (preto/carioca), frango grelhado, carne bovina/suína, ovo, pão, banana, maçã,
+macarrão/massa, batata/mandioca, salada/legumes, refrigerante/suco, café, whey/shake,
+pizza, hambúrguer, açaí, tapioca.
+
+REGRAS OBRIGATÓRIAS:
+1. PRATO COMPOSTO BR: separe SEMPRE itens (ex.: arroz + feijão + frango + salada — 4 itens, não "prato feito").
+2. Macros = porção VISÍVEL em gramas (não por 100g). Use TACO e porções típicas BR.
+3. kcal ≈ 4×proteínas + 4×carboidratos + 9×gorduras.
+4. Porções típicas: arroz 120-200g, feijão 80-150g, frango/carne 80-180g, salada 60-100g, ovo 50g/unidade, pão 40-60g.
+5. Bebidas: inclua copo/garrafa visível (refrigerante ~300ml, café ~200ml).
+6. Múltiplos alimentos: liste todos os claramente visíveis; em dúvida parcial, inclua com confianca 45-65.
+7. Não invente itens invisíveis. Não use nomes genéricos ("comida", "prato").
+8. Se imagem escura/borrada mas houver comida: estime com confianca moderada em vez de lista vazia.`
 
 type OpenAiRaw = {
   confianca_geral?: number
@@ -120,30 +119,34 @@ export async function analyzeWithOpenAI(
 
   let res: Response
   try {
-    res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+    res = await fetchOpenAIWithRetry(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: USER_PROMPT },
+                { type: "image_url", image_url: { url: dataUrl, detail: "auto" } },
+              ],
+            },
+          ],
+          response_format: { type: "json_object" },
+          max_tokens: 2400,
+          temperature: 0.15,
+        }),
+        signal: AbortSignal.timeout(55000),
       },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: USER_PROMPT },
-              { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
-            ],
-          },
-        ],
-        response_format: { type: "json_object" },
-        max_tokens: 2800,
-        temperature: 0.15,
-      }),
-      signal: AbortSignal.timeout(55000),
-    })
+      { maxAttempts: 3 },
+    )
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Timeout ou falha de rede"
     logVision("error", { engine: "openai", stage: "fetch", message: msg })

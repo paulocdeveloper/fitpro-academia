@@ -15,13 +15,26 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FoodScanner, type ScannedFood } from "@/components/nutrition/food-scanner"
 import { NutritionDashboard } from "@/components/nutrition/nutrition-dashboard"
+import { FitnessCoachChat } from "@/components/fitness-ai/fitness-coach-chat"
 import { useIsStaff } from "@/lib/hooks/use-is-staff"
 import {
   createDemoDieta,
   createFitnessDieta,
   type DietaPlano,
 } from "@/lib/nutrition/diet-types"
-import { UtensilsCrossed } from "lucide-react"
+import { Apple, Coffee, Moon, Sun, UtensilsCrossed, Sparkles, type LucideIcon } from "lucide-react"
+
+const REFEICAO_ICONS: LucideIcon[] = [Coffee, Sun, Apple, Moon]
+
+function hydrateDietaFromApi(raw: DietaPlano): DietaPlano {
+  return {
+    ...raw,
+    refeicoes: raw.refeicoes.map((r, i) => ({
+      ...r,
+      icon: REFEICAO_ICONS[i % REFEICAO_ICONS.length] ?? UtensilsCrossed,
+    })),
+  }
+}
 
 function newRefeicaoId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -33,6 +46,7 @@ function newRefeicaoId() {
 export default function DietasPage() {
   const { isStaff, isFitness, user } = useIsStaff()
   const [isScannerOpen, setIsScannerOpen] = useState(false)
+  const [planLoading, setPlanLoading] = useState(false)
 
   const initialDieta = useMemo(() => {
     if (isFitness && !isStaff) {
@@ -116,10 +130,29 @@ export default function DietasPage() {
     }
   }, [isFitnessUser, user?.displayName])
 
+  useEffect(() => {
+    if (!isFitnessUser || isStaff) return
+    let cancelled = false
+    setPlanLoading(true)
+    void fetch("/api/nutrition/plan", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data?.plano) return
+        setDieta(hydrateDietaFromApi(data.plano as DietaPlano))
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setPlanLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isFitnessUser, isStaff])
+
   const subtitle = isFitnessUser
     ? user
-      ? `Olá, ${user.displayName.split(" ")[0]} — acompanhe macros e refeições`
-      : "Acompanhe macros e refeições"
+      ? `Olá, ${user.displayName.split(" ")[0]} — nutrição IA personalizada`
+      : "Nutrição IA personalizada"
     : "Gestão de dietas e planos alimentares"
 
   return (
@@ -134,12 +167,25 @@ export default function DietasPage() {
         }
       />
 
-      <NutritionDashboard
-        dieta={dieta}
-        onOpenScanner={() => setIsScannerOpen(true)}
-        onAddRefeicao={isStaff ? openNovaRefeicao : undefined}
-        showStaffActions={isStaff}
-      />
+      {planLoading && isFitnessUser && (
+        <p className="px-4 md:px-6 text-xs text-muted-foreground flex items-center gap-2 max-w-4xl mx-auto">
+          <Sparkles className="w-3.5 h-3.5 animate-pulse text-primary" />
+          Gerando plano alimentar pelo seu objetivo…
+        </p>
+      )}
+
+      <div className="p-4 md:p-6 max-w-4xl mx-auto w-full space-y-5">
+        {!isStaff && (
+          <FitnessCoachChat compact />
+        )}
+
+        <NutritionDashboard
+          dieta={dieta}
+          onOpenScanner={() => setIsScannerOpen(true)}
+          onAddRefeicao={isStaff ? openNovaRefeicao : undefined}
+          showStaffActions={isStaff}
+        />
+      </div>
 
       {isScannerOpen && (
         <FoodScanner

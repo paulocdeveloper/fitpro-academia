@@ -19,6 +19,7 @@ export const ALUNO_ALLOWED_PREFIXES = [
   "/treino-inteligente",
   "/exercicios",
   "/dietas",
+  "/coach-ia",
   "/agenda",
 ] as const
 
@@ -34,7 +35,7 @@ export const USUARIO_FREE_PREFIXES = [
 ] as const
 
 /** Nutrição — apenas com Premium ativo. */
-export const USUARIO_PREMIUM_PREFIXES = ["/dietas", "/nutricao"] as const
+export const USUARIO_PREMIUM_PREFIXES = ["/dietas", "/nutricao", "/coach-ia"] as const
 
 export const ALUNO_HOME = "/treino-inteligente"
 export const USUARIO_HOME = "/treino-inteligente"
