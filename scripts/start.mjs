@@ -3,6 +3,9 @@
  */
 import { spawn } from "node:child_process"
 import { createRequire } from "node:module"
+import { loadProjectEnv } from "./env-loader.mjs"
+
+loadProjectEnv()
 
 const require = createRequire(import.meta.url)
 const nextBin = require.resolve("next/dist/bin/next")

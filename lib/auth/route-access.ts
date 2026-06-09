@@ -1,5 +1,14 @@
 import type { UserRole } from "@/lib/auth/roles"
 import { isAlunoRole, isStaffRole, isUsuarioRole } from "@/lib/auth/roles"
+import {
+  defaultHomeForUsuario,
+  hasNutritionAccess,
+  hasWorkoutAccess,
+  isCoachIaPath,
+  isNutricaoOnlyPlan,
+  isWorkoutPath,
+  WORKOUT_BLOCKED_PATH,
+} from "@/lib/premium/plan-access"
 import { isPremiumNutritionPath } from "@/lib/premium/paths"
 import { PREMIUM_PUBLIC_PATHS } from "@/lib/premium/routes"
 
@@ -34,7 +43,7 @@ export const USUARIO_FREE_PREFIXES = [
   "/minha-assinatura",
 ] as const
 
-/** Nutrição — apenas com Premium ativo. */
+/** Nutrição — apenas com Premium ativo ou plano NUTRIÇÃO. */
 export const USUARIO_PREMIUM_PREFIXES = ["/dietas", "/nutricao", "/coach-ia"] as const
 
 export const ALUNO_HOME = "/treino-inteligente"
@@ -42,18 +51,43 @@ export const USUARIO_HOME = "/treino-inteligente"
 export const STAFF_HOME = "/dashboard"
 export const PREMIUM_UPSELL_PATH = "/premium"
 
-export function defaultHomeForRole(role: UserRole): string {
+export function defaultHomeForRole(
+  role: UserRole,
+  planType: string | null | undefined = "free",
+): string {
   if (isStaffRole(role)) return STAFF_HOME
-  if (isUsuarioRole(role)) return USUARIO_HOME
+  if (isUsuarioRole(role)) return defaultHomeForUsuario(planType)
   return ALUNO_HOME
 }
 
-function usuarioPathAllowed(pathname: string, isPremium: boolean): boolean {
+function usuarioPathAllowed(
+  pathname: string,
+  isPremium: boolean,
+  planType: string | null | undefined,
+): boolean {
   if (PREMIUM_PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return true
   }
+
+  if (isNutricaoOnlyPlan(planType)) {
+    if (isWorkoutPath(pathname)) return false
+    if (pathname === WORKOUT_BLOCKED_PATH || pathname.startsWith(`${WORKOUT_BLOCKED_PATH}/`)) {
+      return true
+    }
+    if (isPremiumNutritionPath(pathname)) return true
+    return ["/perfil", "/premium", "/minha-assinatura"].some(
+      (p) => pathname === p || pathname.startsWith(`${p}/`),
+    )
+  }
+
+  if (isCoachIaPath(pathname)) {
+    return (
+      hasNutritionAccess("usuario", planType, isPremium) &&
+      hasWorkoutAccess("usuario", planType)
+    )
+  }
   if (isPremiumNutritionPath(pathname)) {
-    return isPremium
+    return hasNutritionAccess("usuario", planType, isPremium)
   }
   return USUARIO_FREE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 }
@@ -69,10 +103,11 @@ export function pathnameAllowedForRole(
   pathname: string,
   role: UserRole,
   isPremium = false,
+  planType: string | null | undefined = "free",
 ): boolean {
   if (isStaffRole(role)) return true
   if (pathname === "/cadastro" || pathname === "/cadastro-fitness") return false
-  if (isUsuarioRole(role)) return usuarioPathAllowed(pathname, isPremium)
+  if (isUsuarioRole(role)) return usuarioPathAllowed(pathname, isPremium, planType)
   const prefixes = allowedPrefixesForRole(role)
   return prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 }
@@ -81,11 +116,29 @@ export function redirectForForbiddenPath(
   pathname: string,
   role: UserRole,
   isPremium = false,
+  planType: string | null | undefined = "free",
 ): string | null {
   if (isStaffRole(role)) return null
-  if (pathnameAllowedForRole(pathname, role, isPremium)) return null
-  if (isUsuarioRole(role) && isPremiumNutritionPath(pathname) && !isPremium) {
+  if (pathnameAllowedForRole(pathname, role, isPremium, planType)) return null
+
+  if (isUsuarioRole(role) && isNutricaoOnlyPlan(planType) && isWorkoutPath(pathname)) {
+    return WORKOUT_BLOCKED_PATH
+  }
+
+  if (
+    isUsuarioRole(role) &&
+    (isPremiumNutritionPath(pathname) || isCoachIaPath(pathname)) &&
+    !hasNutritionAccess(role, planType, isPremium)
+  ) {
     return PREMIUM_UPSELL_PATH
   }
-  return defaultHomeForRole(role)
+
+  return defaultHomeForRole(role, planType)
+}
+
+export function usuarioHasWorkoutAccess(
+  role: UserRole,
+  planType: string | null | undefined,
+): boolean {
+  return hasWorkoutAccess(role, planType)
 }

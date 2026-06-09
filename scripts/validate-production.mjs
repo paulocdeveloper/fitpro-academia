@@ -1,7 +1,21 @@
 /**
  * Valida deploy em produção (Render).
- * Uso: node scripts/validate-production.mjs
+ * Uso: npm run validate:prod
  */
+import { loadProjectEnv, getEnvDiagnostics } from "./env-loader.mjs"
+
+loadProjectEnv()
+const local = getEnvDiagnostics()
+console.log("=== Ambiente local (após .env) ===")
+console.log("Runtime:", local.runtime)
+console.log("Supabase:", local.required.DATABASE_URL && local.required.NEXT_PUBLIC_SUPABASE_URL ? "✓" : "✗")
+console.log("OpenAI local:", local.optional.OPENAI_API_KEY ? "✓" : "~ (opcional)")
+if (local.errors.length) {
+  console.log("\n⚠ Variáveis locais em falta (não bloqueia validação remota):")
+  for (const e of local.errors) console.log(" ", e)
+}
+console.log("")
+
 const BASE = process.env.PROD_URL ?? "https://fitpro-academia.onrender.com"
 
 async function get(path) {

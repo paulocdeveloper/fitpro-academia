@@ -8,8 +8,19 @@ node_modules/
 .next/
 .env
 .env*.local
+.render-browser-profile/
+.mercadopago.local.env
+.mercadopago-browser-profile/
 supabase/.temp/
 .DS_Store
 *.tsbuildinfo
 npm-debug.log*
 pnpm-debug.log*
+
+# Perfis de navegador usados por scripts (dados de sessão — nunca commitar)
+.chrome-user-clone/
+.mp-browser-profile/
+
+# IDE / artefatos locais
+.vscode/
+lh-seo*.jsonlighthouse-report.json

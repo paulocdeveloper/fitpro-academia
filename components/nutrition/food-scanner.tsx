@@ -14,11 +14,12 @@ import {
   applyContinuousFocus,
   attachStreamToVideo,
   cameraFacingLabel,
+  ensureMediaDevices,
   formatCameraErrorDetail,
   getCameraUiTitle,
   getInitialCameraFacing,
   inferFacingFromTrack,
-  isGetUserMediaSupported,
+  isSecureCameraContext,
   isStreamLive,
   logCamera,
   mapFailureToCameraPhase,
@@ -59,6 +60,31 @@ const SCAN_STEPS = [
   "Estimando porções e macros...",
   "Calibrando com base TACO...",
 ]
+
+const STABILITY_CAPTURE_MIN = 0.4
+const LIVE_READY_FALLBACK_MS = 2_500
+
+function waitForVideoElement(
+  getVideo: () => HTMLVideoElement | null,
+  maxMs = 2_000,
+): Promise<HTMLVideoElement | null> {
+  const existing = getVideo()
+  if (existing) return Promise.resolve(existing)
+
+  return new Promise((resolve) => {
+    const deadline = Date.now() + maxMs
+    const timer = window.setInterval(() => {
+      const el = getVideo()
+      if (el) {
+        window.clearInterval(timer)
+        resolve(el)
+      } else if (Date.now() >= deadline) {
+        window.clearInterval(timer)
+        resolve(null)
+      }
+    }, 32)
+  })
+}
 
 type FoodScannerProps = {
   onAddFood?: (food: ScannedFood) => void
@@ -121,8 +147,10 @@ export function FoodScanner({
   const [cameraPhase, setCameraPhase] = useState<CameraPhase>("prompt")
   const cameraRequestId = useRef(0)
   const mountedRef = useRef(true)
-  const [facingMode, setFacingMode] = useState<CameraFacing>(() => getInitialCameraFacing())
+  const [facingMode, setFacingMode] = useState<CameraFacing>("environment")
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false)
+  const [liveSince, setLiveSince] = useState<number | null>(null)
+  const [captureUnlocked, setCaptureUnlocked] = useState(false)
   const [visionReady, setVisionReady] = useState<boolean | null>(null)
   const [visionModel, setVisionModel] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -203,6 +231,7 @@ export function FoodScanner({
       }
 
       setCameraPhase("live")
+      setLiveSince(Date.now())
       setCameraFailure(null)
       setCameraError(null)
       logCamera("active-stream", {
@@ -232,9 +261,15 @@ export function FoodScanner({
         persistCameraFacing(preferredFacing)
       }
 
-      if (!isGetUserMediaSupported()) {
+      if (!ensureMediaDevices()) {
         setCameraPhase("unsupported")
         setCameraError("Seu navegador não suporta acesso à câmera.")
+        return
+      }
+
+      if (!isSecureCameraContext()) {
+        setCameraPhase("unsupported")
+        setCameraError("Câmera requer HTTPS ou localhost. Acesse o app por https:// no celular.")
         return
       }
 
@@ -242,6 +277,8 @@ export function FoodScanner({
       const requestId = ++cameraRequestId.current
       setCameraError(null)
       setCameraFailure(null)
+      setLiveSince(null)
+      setCaptureUnlocked(false)
       if (switchInPlace) {
         setIsSwitchingCamera(true)
       } else {
@@ -251,6 +288,17 @@ export function FoodScanner({
 
       void (async () => {
         try {
+          const videoEl = await waitForVideoElement(() => videoRef.current)
+          if (!videoEl) {
+            if (!mountedRef.current || requestId !== cameraRequestId.current) return
+            applyCameraFailure({
+              kind: "unknown",
+              rawName: "VideoElementMissing",
+              message: "Preview indisponível. Feche e abra o scanner novamente.",
+            })
+            return
+          }
+
           if (!switchInPlace && streamRef.current && isStreamLive(streamRef.current)) {
             syncFacingFromStream(streamRef.current)
             await activateLiveStream(streamRef.current, requestId)
@@ -287,15 +335,16 @@ export function FoodScanner({
     [activateLiveStream, applyCameraFailure, facingMode, syncFacingFromStream],
   )
 
-  /** Abre modal apenas — câmera só inicia após "Permitir câmera" (clique manual). */
+  /** Abre modal e inicia câmera no mesmo gesto do usuário (exigido por iOS/Android). */
   const openScanner = useCallback(() => {
     setQualityHint(null)
     setIsSwitchingCamera(false)
+    setLiveSince(null)
     setFacingMode(getInitialCameraFacing())
     setCameraError(null)
     setCameraFailure(null)
 
-    if (!isGetUserMediaSupported()) {
+    if (!ensureMediaDevices()) {
       onOpenChange?.(true)
       setState("camera")
       setCameraPhase("unsupported")
@@ -303,12 +352,24 @@ export function FoodScanner({
       return
     }
 
+    if (!isSecureCameraContext()) {
+      onOpenChange?.(true)
+      setState("camera")
+      setCameraPhase("unsupported")
+      setCameraError("Câmera requer HTTPS ou localhost. Acesse o app por https:// no celular.")
+      return
+    }
+
     stopCamera()
     onOpenChange?.(true)
     setState("camera")
-    setCameraPhase("prompt")
-    logCamera("scanner-opened-manual", { autoCamera: false })
-  }, [onOpenChange, stopCamera])
+    setCameraPhase("loading")
+    logCamera("scanner-opened", { autoCamera: true, facing: getInitialCameraFacing() })
+
+    requestAnimationFrame(() => {
+      requestCameraPermission(getInitialCameraFacing())
+    })
+  }, [onOpenChange, requestCameraPermission, stopCamera])
 
   useEffect(() => {
     onRegisterOpen?.(openScanner)
@@ -321,18 +382,28 @@ export function FoodScanner({
     setQualityHint(null)
     setIsSwitchingCamera(false)
     setFacingMode(getInitialCameraFacing())
+    setLiveSince(null)
     setCameraError(null)
     setCameraFailure(null)
     stopCamera()
-    if (!isGetUserMediaSupported()) {
+    if (!ensureMediaDevices()) {
       setState("camera")
       setCameraPhase("unsupported")
       setCameraError("Seu navegador não suporta acesso à câmera.")
       return
     }
+    if (!isSecureCameraContext()) {
+      setState("camera")
+      setCameraPhase("unsupported")
+      setCameraError("Câmera requer HTTPS ou localhost. Acesse o app por https:// no celular.")
+      return
+    }
     setState("camera")
-    setCameraPhase("prompt")
-  }, [isControlled, openProp, state, stopCamera])
+    setCameraPhase("loading")
+    requestAnimationFrame(() => {
+      requestCameraPermission(getInitialCameraFacing())
+    })
+  }, [isControlled, openProp, requestCameraPermission, state, stopCamera])
 
   /** Fecha modal controlado externamente. */
   useEffect(() => {
@@ -344,6 +415,8 @@ export function FoodScanner({
     setCameraError(null)
     setCameraFailure(null)
     setCameraPhase("prompt")
+    setLiveSince(null)
+    setCaptureUnlocked(false)
     setQualityHint(null)
     setStability(0)
     prevFrameRef.current = null
@@ -372,7 +445,7 @@ export function FoodScanner({
       )
     }
 
-    if (stability < 0.55) {
+    if (stability < STABILITY_CAPTURE_MIN && !captureUnlocked) {
       setQualityHint("Segure firme e aguarde a estabilização antes de capturar.")
       return
     }
@@ -527,10 +600,31 @@ export function FoodScanner({
     setCameraError(null)
     setCameraFailure(null)
     setCameraPhase("prompt")
+    setLiveSince(null)
+    setCaptureUnlocked(false)
     setQualityHint(null)
     setStability(0)
     prevFrameRef.current = null
   }
+
+  useEffect(() => {
+    if (cameraPhase !== "live" || liveSince === null) {
+      setCaptureUnlocked(false)
+      return
+    }
+    if (stability >= STABILITY_CAPTURE_MIN) {
+      setCaptureUnlocked(true)
+      return
+    }
+    const remaining = LIVE_READY_FALLBACK_MS - (Date.now() - liveSince)
+    const timer = window.setTimeout(() => setCaptureUnlocked(true), Math.max(0, remaining))
+    return () => window.clearTimeout(timer)
+  }, [cameraPhase, liveSince, stability])
+
+  const captureReady =
+    cameraPhase === "live" &&
+    !isSwitchingCamera &&
+    (stability >= STABILITY_CAPTURE_MIN || captureUnlocked)
 
   useEffect(() => () => stopCamera(), [stopCamera])
 
@@ -668,10 +762,18 @@ export function FoodScanner({
                       autoPlay
                       playsInline
                       muted
-                      className="w-full h-full object-cover"
+                      className="absolute inset-0 z-0 h-full w-full object-cover"
                       style={{
                         transform: facingMode === "user" ? "scaleX(-1)" : "none",
-                        visibility: cameraPhase === "live" ? "visible" : "hidden",
+                        // Nunca visibility:hidden — iOS/Safari não inicia play() em vídeo oculto.
+                        opacity: cameraPhase === "live" ? 1 : 0,
+                      }}
+                      onClick={() => {
+                        if (cameraPhase === "live" && videoRef.current?.paused) {
+                          void videoRef.current.play().catch(() => {
+                            requestCameraPermission(getInitialCameraFacing())
+                          })
+                        }
                       }}
                     />
                     <canvas ref={canvasRef} className="hidden" />
@@ -714,7 +816,9 @@ export function FoodScanner({
                               <Camera className="w-4 h-4" />
                               Permitir câmera
                             </Button>
-                            {(cameraPhase === "denied" || cameraPhase === "failed") && (
+                            {(cameraPhase === "denied" ||
+                              cameraPhase === "failed" ||
+                              cameraFailure?.kind === "not_found") && (
                               <Button
                                 type="button"
                                 size="sm"
@@ -793,7 +897,10 @@ export function FoodScanner({
                             className="h-full transition-all duration-300 rounded-full"
                             style={{
                               width: `${Math.round(stability * 100)}%`,
-                              background: stability >= 0.55 ? "var(--primary)" : "oklch(0.75 0.18 80)",
+                              background:
+                                stability >= STABILITY_CAPTURE_MIN
+                                  ? "var(--primary)"
+                                  : "oklch(0.75 0.18 80)",
                             }}
                           />
                         </div>
@@ -814,7 +921,7 @@ export function FoodScanner({
                     className="w-full gap-2 font-semibold neon-glow"
                     style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
                     onClick={captureAndScan}
-                    disabled={cameraPhase !== "live" || isSwitchingCamera || stability < 0.55}
+                    disabled={!captureReady}
                   >
                     <Zap className="w-4 h-4" />
                     Capturar e Analisar

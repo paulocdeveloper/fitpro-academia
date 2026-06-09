@@ -205,7 +205,7 @@ export function MinhaAssinaturaView() {
                 >
                   <Link href="/premium">
                     <Sparkles className="h-4 w-4" />
-                    Assinar por R$ {PREMIUM_PLAN.priceBrl.toFixed(2).replace(".", ",")}/mês
+                    Ver planos Premium
                   </Link>
                 </Button>
               ) : (

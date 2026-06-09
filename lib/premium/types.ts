@@ -1,6 +1,6 @@
 export type SubscriptionStatus = "free" | "premium" | "expired" | "cancelled"
 
-export type PlanType = "free" | "premium_nutrition"
+export type PlanType = "free" | "premium_nutrition" | "nutricao"
 
 export type PaymentProvider = "mock" | "stripe" | "mercadopago" | null
 
@@ -32,3 +32,18 @@ export const PREMIUM_PLAN = {
   priceCents: 1090,
   interval: "month" as const,
 }
+
+/** Plano somente nutrição — acesso via `plan_type = 'nutricao'` (camada de aplicação). */
+export const NUTRICAO_PLAN = {
+  slug: "nutricao" as const,
+  name: "NUTRIÇÃO",
+  features: {
+    nutrition: true,
+    scanner: true,
+    history: true,
+    workouts: false,
+    exercises: false,
+    trainingSheet: false,
+    workoutPremium: false,
+  },
+} as const

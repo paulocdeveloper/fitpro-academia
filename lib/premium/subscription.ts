@@ -9,8 +9,8 @@ import {
   activatePremiumFromPayment,
   addMonths,
 } from "@/lib/premium/subscription-store"
+import { normalizePlanTypeSlug } from "@/lib/premium/plan-access"
 import {
-  PREMIUM_PLAN,
   type PaymentProvider,
   type PaymentStatus,
   type PlanType,
@@ -149,8 +149,16 @@ export async function loadUserSubscription(
     expiresAt,
     paymentStatus,
   )
-  const planType = (row?.plan_type ?? "free") as PlanType
-  const isPremium = computeIsPremium(subscriptionStatus, expiresAt, role)
+  const rawPlanType = row?.plan_type ?? "free"
+  const normalizedPlan = normalizePlanTypeSlug(rawPlanType)
+  const isNutricaoOnly = normalizedPlan === "nutricao"
+  const isPremiumPaid = computeIsPremium(subscriptionStatus, expiresAt, role)
+  const isPremium = isPremiumPaid || isNutricaoOnly
+  const planType: PlanType = isNutricaoOnly
+    ? "nutricao"
+    : isPremiumPaid
+      ? "premium_nutrition"
+      : "free"
   const provider = (row?.payment_provider ?? null) as PaymentProvider
   const nextBillingAt = parseExpires(row?.next_billing_at ?? null)
 
@@ -162,7 +170,7 @@ export async function loadUserSubscription(
 
   return {
     subscriptionStatus: displayStatus,
-    planType: isPremium ? "premium_nutrition" : planType,
+    planType,
     premiumExpiresAt: expiresAt?.toISOString() ?? null,
     isPremium,
     paymentProvider: provider,
@@ -201,4 +209,5 @@ export {
   PREMIUM_NUTRITION_PREFIXES,
   isPremiumNutritionPath,
   requiresPremiumForPath,
+  requiresNutritionAccess,
 } from "@/lib/premium/paths"

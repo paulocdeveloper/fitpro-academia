@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { requireAuth } from "@/lib/api/require-auth"
+import { requireWorkoutAccess } from "@/lib/api/require-workout-access"
 import { isFitnessRole, isStaffRole } from "@/lib/auth/roles"
 import { query } from "@/lib/db"
 import { mapDbConnectionError } from "@/lib/db-errors"
@@ -45,7 +45,7 @@ function formatPutError(e: unknown): { status: number; error: string; detail?: s
 }
 
 export async function GET(req: Request) {
-  const auth = await requireAuth(req)
+  const auth = await requireWorkoutAccess(req)
   if (!auth.ok) return auth.response
 
   if (isStaffRole(auth.session.role)) {
@@ -84,7 +84,7 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  const auth = await requireAuth(req)
+  const auth = await requireWorkoutAccess(req)
   if (!auth.ok) return auth.response
   if (isStaffRole(auth.session.role)) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 })
@@ -165,7 +165,7 @@ export async function PUT(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireAuth(req)
+  const auth = await requireWorkoutAccess(req)
   if (!auth.ok) return auth.response
   if (isStaffRole(auth.session.role)) {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 })

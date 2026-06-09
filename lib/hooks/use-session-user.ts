@@ -5,6 +5,7 @@ import type { UserRole } from "@/lib/auth/roles"
 
 export type SessionUser = {
   id: number
+  email: string
   role: UserRole
   academiaId: number
   displayName: string

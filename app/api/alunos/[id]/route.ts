@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireStaff } from "@/lib/api/require-auth"
 import { execute, query } from "@/lib/db"
+import { getAlunosColumns } from "@/lib/alunos-schema"
 
 type AlunoRow = {
   id: number
@@ -27,10 +28,7 @@ export async function GET(req: Request, ctx: RouteContext) {
   }
 
   try {
-    const columns = await query<{ COLUMN_NAME: string }>(
-      `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'alunos'`,
-    )
-    const availableColumns = new Set(columns.map((c) => c.COLUMN_NAME))
+    const availableColumns = await getAlunosColumns()
 
     if (!availableColumns.has("academia_id")) {
       return NextResponse.json(
@@ -70,11 +68,8 @@ export async function DELETE(req: Request, ctx: RouteContext) {
   }
 
   try {
-    const cols = await query<{ COLUMN_NAME: string }>(
-      `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'alunos'`,
-    )
-    const hasAcad = cols.some((c) => c.COLUMN_NAME === "academia_id")
-    if (!hasAcad) {
+    const cols = await getAlunosColumns()
+    if (!cols.has("academia_id")) {
       return NextResponse.json(
         { error: "Multi-tenant: execute data/migrate_saas_multitenant.sql." },
         { status: 503 },

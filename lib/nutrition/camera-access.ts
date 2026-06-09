@@ -29,17 +29,9 @@ export function persistCameraFacing(facing: CameraFacing): void {
   }
 }
 
-/** Primeira abertura: traseira no mobile; desktop respeita persistência. */
+/** Padrão: câmera traseira (`environment`). Persistência só após troca manual. */
 export function getInitialCameraFacing(): CameraFacing {
-  const persisted = loadPersistedCameraFacing()
-  if (isMobileCameraDevice()) {
-    const hasPersisted =
-      typeof localStorage !== "undefined" &&
-      (localStorage.getItem(NUTRITION_CAMERA_FACING_KEY) === "user" ||
-        localStorage.getItem(NUTRITION_CAMERA_FACING_KEY) === "environment")
-    if (!hasPersisted) return "environment"
-  }
-  return persisted
+  return "environment"
 }
 
 export function cameraFacingLabel(facing: CameraFacing): "Traseira" | "Frontal" {
@@ -124,7 +116,10 @@ const GET_USER_MEDIA_TIMEOUT_MS = 20_000
 const RETRY_ROUNDS = 2
 const RETRY_DELAY_MS = 400
 const PLAY_RETRY_ATTEMPTS = 3
-const TRACK_LIVE_WAIT_MS = 2_000
+
+function trackLiveWaitMs(): number {
+  return isMobileCameraDevice() ? 5_000 : 2_500
+}
 
 export function logCamera(step: string, data?: Record<string, unknown>) {
   if (typeof console === "undefined") return
@@ -140,15 +135,47 @@ export function logCameraError(step: string, e: unknown, extra?: Record<string, 
   logCamera("error-message", { message, step })
 }
 
-function isSecureCameraContext(): boolean {
+export function isSecureCameraContext(): boolean {
   if (typeof window === "undefined") return false
   const host = window.location.hostname
   const okHost = host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1"
   return window.isSecureContext || okHost
 }
 
+/** Polyfill para WebViews Android antigos e Safari legado. */
+export function ensureMediaDevices(): boolean {
+  if (typeof navigator === "undefined") return false
+
+  if (!navigator.mediaDevices) {
+    ;(navigator as Navigator & { mediaDevices?: MediaDevices }).mediaDevices = {} as MediaDevices
+  }
+
+  const md = navigator.mediaDevices
+  if (!md.getUserMedia) {
+    const legacy =
+      (
+        navigator as Navigator & {
+          getUserMedia?: typeof navigator.mediaDevices.getUserMedia
+          webkitGetUserMedia?: typeof navigator.mediaDevices.getUserMedia
+          mozGetUserMedia?: typeof navigator.mediaDevices.getUserMedia
+        }
+      ).getUserMedia ??
+      (navigator as Navigator & { webkitGetUserMedia?: typeof md.getUserMedia }).webkitGetUserMedia ??
+      (navigator as Navigator & { mozGetUserMedia?: typeof md.getUserMedia }).mozGetUserMedia
+
+    if (!legacy) return false
+
+    md.getUserMedia = (constraints) =>
+      new Promise((resolve, reject) => {
+        legacy.call(navigator, constraints, resolve, reject)
+      })
+  }
+
+  return Boolean(md.getUserMedia)
+}
+
 export function isGetUserMediaSupported(): boolean {
-  return typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia)
+  return ensureMediaDevices()
 }
 
 export function isStreamLive(stream: MediaStream | null | undefined): boolean {
@@ -298,12 +325,17 @@ function buildConstraintAttempts(
   const fallback: CameraFacing = facing === "environment" ? "user" : "environment"
   return [
     {
-      label: `1-facing-${facing}`,
+      label: `1-facing-${facing}-exact`,
+      facingHint: facing,
+      constraints: { video: { facingMode: facing }, audio: false },
+    },
+    {
+      label: `2-facing-${facing}-ideal`,
       facingHint: facing,
       constraints: { video: { facingMode: { ideal: facing } }, audio: false },
     },
     {
-      label: `2-facing-${facing}-hd`,
+      label: `3-facing-${facing}-hd`,
       facingHint: facing,
       constraints: {
         video: {
@@ -315,7 +347,7 @@ function buildConstraintAttempts(
       },
     },
     {
-      label: `3-facing-${facing}-sd`,
+      label: `4-facing-${facing}-sd`,
       facingHint: facing,
       constraints: {
         video: {
@@ -327,12 +359,17 @@ function buildConstraintAttempts(
       },
     },
     {
-      label: `4-facing-fallback-${fallback}`,
+      label: `5-facing-fallback-${fallback}`,
+      facingHint: fallback,
+      constraints: { video: { facingMode: fallback }, audio: false },
+    },
+    {
+      label: `6-facing-fallback-${fallback}-ideal`,
       facingHint: fallback,
       constraints: { video: { facingMode: { ideal: fallback } }, audio: false },
     },
     {
-      label: "5-video-true-last-resort",
+      label: "7-video-true-last-resort",
       facingHint: facing,
       constraints: { video: true, audio: false },
     },
@@ -405,20 +442,31 @@ async function tryOpenStream(
 }
 
 async function acceptStream(stream: MediaStream, facing: CameraFacing): Promise<MediaStream | null> {
-  const live = await waitForVideoTrackLive(stream)
-  if (!live) {
-    logCamera("stream-not-live-yet", { facing })
+  const track = stream.getVideoTracks()[0]
+  if (!track) {
     stopMediaStream(stream)
     return null
   }
-  const track = stream.getVideoTracks()[0]
-  if (track) {
-    try {
-      await track.applyConstraints({ facingMode: { ideal: facing } })
-      logCamera("facing-ideal-applied", { facing })
-    } catch (e) {
-      logCameraError("facing-ideal-skip", e, { facing, note: "stream mantido" })
+
+  const live = await waitForVideoTrackLive(stream, trackLiveWaitMs())
+  if (!live && track.readyState !== "live") {
+    logCamera("stream-not-live-yet-keeping", {
+      facing,
+      readyState: track.readyState,
+      mobile: isMobileCameraDevice(),
+    })
+    // Em mobile o track pode ficar live só após attach no <video> — não descartar cedo.
+    if (!isMobileCameraDevice()) {
+      stopMediaStream(stream)
+      return null
     }
+  }
+
+  try {
+    await track.applyConstraints({ facingMode: { ideal: facing } })
+    logCamera("facing-ideal-applied", { facing })
+  } catch (e) {
+    logCameraError("facing-ideal-skip", e, { facing, note: "stream mantido" })
   }
   return stream
 }
@@ -499,11 +547,14 @@ async function runConstraintAttempts(
 export async function requestCameraStream(
   facing: CameraFacing = "environment",
 ): Promise<MediaStream> {
-  if (!isGetUserMediaSupported()) {
+  if (!ensureMediaDevices()) {
     throw { kind: "unsupported", message: "Navegador sem suporte a câmera." } satisfies CameraAccessFailure
   }
   if (!isSecureCameraContext()) {
-    throw { kind: "insecure", message: "Câmera requer HTTPS (Render) ou localhost." } satisfies CameraAccessFailure
+    throw {
+      kind: "insecure",
+      message: "Câmera requer HTTPS ou localhost. Acesse o app por https:// no celular.",
+    } satisfies CameraAccessFailure
   }
 
   const primary = facing
@@ -560,12 +611,24 @@ export async function requestCameraStream(
 export async function applyContinuousFocus(stream: MediaStream): Promise<void> {
   const track = stream.getVideoTracks()[0]
   if (!track) return
+
+  // Só aplica se o hardware expõe focusMode (webcams desktop normalmente não têm).
+  const caps = track.getCapabilities?.() as (MediaTrackCapabilities & { focusMode?: string[] }) | undefined
+  const modes = caps?.focusMode
+  if (!modes || !modes.includes("continuous")) {
+    logCamera("focus-unsupported", { focusModes: modes ?? null })
+    return
+  }
+
   try {
     await track.applyConstraints({
       advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet],
     })
+    logCamera("focus-applied", { mode: "continuous" })
   } catch (e) {
-    logCameraError("focus-skip", e)
+    // Falha de autofoco não é fatal — stream segue ativo; log informativo (sem console.error).
+    const err = e as DOMException & { constraint?: string }
+    logCamera("focus-skip", { name: err?.name, constraint: err?.constraint })
   }
 }
 
@@ -659,6 +722,10 @@ export async function attachStreamToVideo(
   video.playsInline = true
   video.setAttribute("playsinline", "true")
   video.setAttribute("webkit-playsinline", "true")
+  video.setAttribute("x-webkit-airplay", "deny")
+  // iOS/Safari: elemento precisa estar visível no DOM para play() — nunca display:none.
+  video.style.visibility = "visible"
+  video.style.opacity = video.style.opacity || "1"
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -747,7 +814,8 @@ export function mapFailureToCameraPhase(
   failure: CameraAccessFailure,
 ): "denied" | "failed" | "unsupported" {
   if (failure.kind === "unsupported" || failure.kind === "insecure") return "unsupported"
-  if (isCameraPermissionDenied(failure)) return "denied"
+  if (failure.kind === "denied" || isCameraPermissionDenied(failure)) return "denied"
+  if (failure.kind === "not_found") return "failed"
   return "failed"
 }
 
@@ -760,6 +828,8 @@ export function getCameraUiTitle(
   if (phase === "loading") return "Iniciando câmera…"
   if (phase === "live") return "Câmera ativa"
   if (phase === "prompt") return "Permita o acesso à câmera"
+
+  if (failure?.kind === "not_found") return "Câmera não encontrada"
 
   const name = failure?.rawName ?? ""
   if (name === "NotReadableError" || name === "TrackStartError") return "Câmera ocupada"

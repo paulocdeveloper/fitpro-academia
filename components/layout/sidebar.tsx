@@ -72,10 +72,10 @@ export function AppSidebar() {
   const alunosCount = useAlunosCount(pathname)
   const { user, loading, isStaff } = useIsStaff()
   const { isMobile, setOpenMobile } = useSidebar()
-  const navItems = navGroupsForRole(user?.role)
-  const homeHref = user ? defaultHomeForRole(user.role) : "/login"
+  const navItems = navGroupsForRole(user?.role, user?.email, user?.planType)
+  const homeHref = user ? defaultHomeForRole(user.role, user.planType) : "/login"
   const showConfig = showConfiguracoesLink(user?.role)
-  const brandSub = sidebarBrandSubtitle(user?.role)
+  const brandSub = sidebarBrandSubtitle(user?.role, user?.planType)
 
   useEffect(() => {
     if (isMobile) setOpenMobile(false)

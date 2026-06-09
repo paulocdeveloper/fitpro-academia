@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { requireStaff } from "@/lib/api/require-auth"
 import { insertRow, query } from "@/lib/db"
+import { quoteIdent } from "@/lib/db-dialect"
+import { getAlunosColumns } from "@/lib/alunos-schema"
 
 type AlunoRow = {
   id: number
@@ -49,10 +51,7 @@ export async function GET(req: Request) {
   if (!auth.ok) return auth.response
 
   try {
-    const columns = await query<{ COLUMN_NAME: string }>(
-      `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'alunos'`,
-    )
-    const availableColumns = new Set(columns.map((c) => c.COLUMN_NAME))
+    const availableColumns = await getAlunosColumns()
 
     if (!availableColumns.has("academia_id")) {
       return NextResponse.json(
@@ -87,14 +86,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 })
     }
 
-    const columns = await query<{ COLUMN_NAME: string }>(
-      `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'alunos'`,
-    )
-    const lowerToActual = new Map(
-      columns.map((c) => [c.COLUMN_NAME.toLowerCase(), c.COLUMN_NAME]),
-    )
+    const availableColumns = await getAlunosColumns()
 
-    if (!lowerToActual.has("academia_id")) {
+    if (!availableColumns.has("academia_id")) {
       return NextResponse.json(
         { error: "Multi-tenant: execute data/migrate_saas_multitenant.sql (coluna alunos.academia_id)." },
         { status: 503 },
@@ -114,20 +108,16 @@ export async function POST(req: Request) {
 
     const sqlFields: string[] = []
     const sqlParams: unknown[] = []
-    const acadActual = lowerToActual.get("academia_id")
-    if (acadActual) {
-      sqlFields.push(`\`${acadActual}\``)
-      sqlParams.push(auth.session.academiaId)
-    }
+    sqlFields.push(quoteIdent("academia_id"))
+    sqlParams.push(auth.session.academiaId)
 
     for (const f of INSERTABLE_FIELDS) {
-      const actual = lowerToActual.get(f.toLowerCase())
-      if (!actual) continue
-      sqlFields.push(`\`${actual}\``)
+      if (!availableColumns.has(f.toLowerCase())) continue
+      sqlFields.push(quoteIdent(f))
       sqlParams.push(valuesByField[f])
     }
 
-    if (!sqlFields.length || !lowerToActual.has("nome")) {
+    if (sqlFields.length < 2 || !availableColumns.has("nome")) {
       return NextResponse.json(
         { error: "Tabela alunos incompatível (coluna nome ausente)" },
         { status: 500 },

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { Zap, Eye, EyeOff, ArrowRight, Dumbbell, Users, BarChart3 } from "lucide-react"
 import { pathnameAllowedForRole, defaultHomeForRole } from "@/lib/auth/route-access"
 import type { UserRole } from "@/lib/auth/roles"
+import { ForgotPasswordDialog } from "@/components/auth/forgot-password-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -17,6 +18,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [forgotOpen, setForgotOpen] = useState(false)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -141,7 +143,7 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5">
+          <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5" autoComplete="off">
             {error && (
               <p className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
                 {error}
@@ -153,8 +155,9 @@ export default function LoginPage() {
               </Label>
               <Input
                 id="email"
+                name="fitpro-email"
                 type="email"
-                autoComplete="username"
+                autoComplete="off"
                 placeholder="seu@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -168,15 +171,20 @@ export default function LoginPage() {
                 <Label htmlFor="senha" className="text-sm font-medium">
                   Senha
                 </Label>
-                <Link href="#" className="text-xs neon-text hover:underline">
+                <button
+                  type="button"
+                  onClick={() => setForgotOpen(true)}
+                  className="text-xs neon-text hover:underline"
+                >
                   Esqueci a senha
-                </Link>
+                </button>
               </div>
               <div className="relative">
                 <Input
                   id="senha"
+                  name="fitpro-password"
                   type={showPass ? "text" : "password"}
-                  autoComplete="current-password"
+                  autoComplete="off"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="h-11 pr-10 bg-secondary border-border/50 focus:border-primary/50"
@@ -230,6 +238,8 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+
+      <ForgotPasswordDialog open={forgotOpen} onOpenChange={setForgotOpen} />
     </div>
   )
 }

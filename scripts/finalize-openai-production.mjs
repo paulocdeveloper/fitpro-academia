@@ -11,6 +11,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { spawnSync } from "node:child_process"
+import { loadProjectEnv, getEnvDiagnostics } from "./env-loader.mjs"
 
 const API = "https://api.render.com/v1"
 const SERVICE_NAME = "fitpro-academia"
@@ -19,16 +20,18 @@ const ENV_PATH = resolve(process.cwd(), ".env")
 const ENV_LOCAL_PATH = resolve(process.cwd(), ".env.local")
 
 function loadDotEnv() {
+  loadProjectEnv()
+  const d = getEnvDiagnostics()
   const out = {}
-  for (const p of [ENV_PATH, ENV_LOCAL_PATH]) {
-    if (!existsSync(p)) continue
-    for (const line of readFileSync(p, "utf8").split(/\r?\n/)) {
-      const t = line.trim()
-      if (!t || t.startsWith("#")) continue
-      const eq = t.indexOf("=")
-      if (eq < 1) continue
-      out[t.slice(0, eq).trim()] = t.slice(eq + 1).trim()
-    }
+  for (const k of [
+    "OPENAI_API_KEY",
+    "OPENAI_VISION_MODEL",
+    "RENDER_API_KEY",
+    "DATABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  ]) {
+    if (process.env[k]) out[k] = process.env[k]
   }
   return out
 }
@@ -139,10 +142,15 @@ const model = (process.env.OPENAI_VISION_MODEL || fileEnv.OPENAI_VISION_MODEL ||
 console.log("=== Finalizar IA Nutricional (OpenAI Vision) ===\n")
 
 if (!openaiKey) {
-  console.error("✗ OPENAI_API_KEY ausente no disco.")
+  const diag = getEnvDiagnostics()
+  console.error("✗ OPENAI_API_KEY ausente.")
   console.error(`  Arquivo: ${ENV_PATH}`)
-  console.error("  Chaves encontradas:", Object.keys(loadDotEnv()).join(", ") || "(nenhuma)")
-  console.error("\n  Se você editou o .env no Cursor, salve com Ctrl+S e rode novamente.")
+  console.error("  Chaves carregadas:", Object.keys(loadDotEnv()).join(", ") || "(nenhuma)")
+  if (diag.errors.length) {
+    console.error("\n  Erros de ambiente:")
+    for (const e of diag.errors) console.error("   •", e)
+  }
+  console.error("\n  Se você editou o .env no Cursor, salve com Ctrl+S e rode: npm run env:check")
   console.error("  Linhas necessárias:")
   console.error("    OPENAI_API_KEY=sk-...")
   console.error("    OPENAI_VISION_MODEL=gpt-4o")

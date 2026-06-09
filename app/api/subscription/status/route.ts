@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireAuth } from "@/lib/api/require-auth"
 import { loadUserSubscription } from "@/lib/premium/subscription"
+import { BILLING_PLANS } from "@/lib/premium/billing-plans"
 import { PREMIUM_PLAN } from "@/lib/premium/types"
 
 export async function GET(req: Request) {
@@ -18,6 +19,7 @@ export async function GET(req: Request) {
     ok: true,
     subscription,
     plan: PREMIUM_PLAN,
+    billingPlans: BILLING_PLANS,
     checkout: {
       mercadopago: Boolean(process.env.MERCADOPAGO_ACCESS_TOKEN?.trim()),
       mockDev:

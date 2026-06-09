@@ -8,6 +8,7 @@ import { useSidebar } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useSessionUser } from "@/lib/hooks/use-session-user"
 import { isStaffRole, isUsuarioRole } from "@/lib/auth/roles"
+import { defaultHomeForUsuario, isNutricaoOnlyPlan } from "@/lib/premium/plan-access"
 import { cn } from "@/lib/utils"
 
 export function SidebarUser() {
@@ -49,7 +50,9 @@ export function SidebarUser() {
         isStaffRole(user.role)
           ? "/configuracoes"
           : isUsuarioRole(user.role)
-            ? "/perfil"
+            ? isNutricaoOnlyPlan(user.planType)
+              ? defaultHomeForUsuario(user.planType)
+              : "/perfil"
             : "/treino-inteligente"
       }
       className={cn(

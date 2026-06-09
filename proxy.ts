@@ -1,14 +1,23 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { verifyAccessToken } from "@/lib/auth/jwt"
+import { isMasterEmail } from "@/lib/auth/master"
 import { isFitnessRole } from "@/lib/auth/roles"
 import {
   defaultHomeForRole,
   redirectForForbiddenPath,
 } from "@/lib/auth/route-access"
 import { AUTH_COOKIE } from "@/lib/auth/session"
-import { requiresPremiumForPath } from "@/lib/premium/paths"
+import { requiresNutritionAccess } from "@/lib/premium/paths"
 import { PREMIUM_UPSELL_PATH } from "@/lib/auth/route-access"
+import {
+  hasNutritionAccess,
+  isCoachIaPath,
+  isNutricaoOnlyPlan,
+  isWorkoutPath,
+  WORKOUT_BLOCKED_PATH,
+} from "@/lib/premium/plan-access"
+import { isUsuarioRole } from "@/lib/auth/roles"
 
 const PROTECTED_PREFIXES = [
   "/dashboard",
@@ -27,6 +36,8 @@ const PROTECTED_PREFIXES = [
   "/perfil",
   "/premium",
   "/minha-assinatura",
+  "/upgrade-treinos",
+  "/master",
 ]
 
 function needsPageAuth(pathname: string) {
@@ -52,7 +63,8 @@ export async function proxy(request: NextRequest) {
   if (
     pathname.startsWith("/api/auth/login") ||
     pathname.startsWith("/api/auth/logout") ||
-    pathname.startsWith("/api/auth/register-fitness")
+    pathname.startsWith("/api/auth/register-fitness") ||
+    pathname.startsWith("/api/auth/forgot-password")
   ) {
     return NextResponse.next()
   }
@@ -76,23 +88,50 @@ export async function proxy(request: NextRequest) {
   try {
     const session = await verifyAccessToken(token)
     const isPremium = session.isPremium === true
+    const planType = session.planType ?? "free"
 
     if (pathname === "/dashboard" && isFitnessRole(session.role)) {
       const url = request.nextUrl.clone()
-      url.pathname = defaultHomeForRole(session.role)
+      url.pathname = defaultHomeForRole(session.role, planType)
       return withNoIndex(NextResponse.redirect(url))
     }
 
-    if (requiresPremiumForPath(pathname, session.role) && !isPremium) {
+    if (
+      isUsuarioRole(session.role) &&
+      isNutricaoOnlyPlan(planType) &&
+      isWorkoutPath(pathname) &&
+      pathname !== WORKOUT_BLOCKED_PATH
+    ) {
+      const url = request.nextUrl.clone()
+      url.pathname = WORKOUT_BLOCKED_PATH
+      return withNoIndex(NextResponse.redirect(url))
+    }
+
+    const needsNutritionUpsell =
+      requiresNutritionAccess(pathname, session.role, planType, isPremium) ||
+      (isUsuarioRole(session.role) &&
+        isCoachIaPath(pathname) &&
+        !hasNutritionAccess(session.role, planType, isPremium))
+
+    if (needsNutritionUpsell) {
       const url = request.nextUrl.clone()
       url.pathname = PREMIUM_UPSELL_PATH
       return withNoIndex(NextResponse.redirect(url))
     }
 
-    const forbidden = redirectForForbiddenPath(pathname, session.role, isPremium)
+    const forbidden = redirectForForbiddenPath(pathname, session.role, isPremium, planType)
     if (forbidden) {
       const url = request.nextUrl.clone()
       url.pathname = forbidden
+      return withNoIndex(NextResponse.redirect(url))
+    }
+
+    if (
+      (pathname === "/master" || pathname.startsWith("/master/")) &&
+      !isMasterEmail(session.email)
+    ) {
+      const url = request.nextUrl.clone()
+      url.pathname = defaultHomeForRole(session.role)
       return withNoIndex(NextResponse.redirect(url))
     }
 

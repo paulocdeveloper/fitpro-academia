@@ -1,5 +1,6 @@
 import { mercadoPagoFetch } from "@/lib/mercadopago/client"
-import { subscriptionBackUrls } from "@/lib/mercadopago/config"
+import { getMercadoPagoPlanId, subscriptionBackUrls } from "@/lib/mercadopago/config"
+import type { BillingPlan } from "@/lib/premium/billing-plans"
 import { PREMIUM_PLAN } from "@/lib/premium/types"
 
 export type MpPreapprovalStatus =
@@ -47,23 +48,32 @@ export async function createPendingPreapproval(input: {
   userId: number
   academiaId: number
   payerEmail: string
+  billingPlan: BillingPlan
 }): Promise<{ preapprovalId: string; checkoutUrl: string }> {
   const urls = subscriptionBackUrls()
   const webhookBase = urls.back.replace(/\/minha-assinatura$/, "")
-  const body = {
-    reason: PREMIUM_PLAN.name,
+  const planId = getMercadoPagoPlanId(input.billingPlan.slug)
+
+  const shared = {
+    reason: `${PREMIUM_PLAN.name} — ${input.billingPlan.name}`,
     external_reference: fitproExternalReference(input.userId, input.academiaId),
     payer_email: input.payerEmail,
     back_url: urls.back,
     notification_url: `${webhookBase}/api/subscription/webhook?source_news=webhooks`,
-    status: "pending",
-    auto_recurring: {
-      frequency: 1,
-      frequency_type: "months",
-      transaction_amount: PREMIUM_PLAN.priceBrl,
-      currency_id: "BRL",
-    },
+    status: "pending" as const,
   }
+
+  const body = planId
+    ? { ...shared, preapproval_plan_id: planId }
+    : {
+        ...shared,
+        auto_recurring: {
+          frequency: input.billingPlan.recurring.frequency,
+          frequency_type: input.billingPlan.recurring.frequencyType,
+          transaction_amount: input.billingPlan.priceBrl,
+          currency_id: "BRL",
+        },
+      }
 
   const created = await mercadoPagoFetch<MpPreapproval>("/preapproval", {
     method: "POST",

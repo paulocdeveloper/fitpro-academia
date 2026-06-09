@@ -13,9 +13,12 @@ import {
   TrendingUp,
   UserCircle,
   MessageCircle,
+  Shield,
 } from "lucide-react"
 import type { UserRole } from "@/lib/auth/roles"
 import { isAlunoRole, isStaffRole, isUsuarioRole } from "@/lib/auth/roles"
+import { isMasterEmail } from "@/lib/auth/master"
+import { isNutricaoOnlyPlan } from "@/lib/premium/plan-access"
 
 export type NavItem = {
   href: string
@@ -90,9 +93,36 @@ const usuarioNav: NavGroup[] = [
   },
 ]
 
-export function navGroupsForRole(role: UserRole | null | undefined): NavGroup[] {
-  if (!role || isStaffRole(role)) return staffNav
-  if (isUsuarioRole(role)) return usuarioNav
+const usuarioNutricaoNav: NavGroup[] = [
+  {
+    label: "Nutrição",
+    items: [
+      { href: "/dietas", label: "Nutrição", icon: Salad },
+      { href: "/perfil", label: "Perfil", icon: UserCircle },
+      { href: "/minha-assinatura", label: "Minha assinatura", icon: CreditCard },
+      { href: "/premium", label: "Upgrade", icon: Sparkles },
+    ],
+  },
+]
+
+const masterNav: NavGroup = {
+  label: "Plataforma",
+  items: [{ href: "/master", label: "Master", icon: Shield }],
+}
+
+export function navGroupsForRole(
+  role: UserRole | null | undefined,
+  email?: string | null,
+  planType?: string | null,
+): NavGroup[] {
+  if (!role || isStaffRole(role)) {
+    const groups = [...staffNav]
+    if (isMasterEmail(email)) groups.push(masterNav)
+    return groups
+  }
+  if (isUsuarioRole(role)) {
+    return isNutricaoOnlyPlan(planType) ? usuarioNutricaoNav : usuarioNav
+  }
   if (isAlunoRole(role)) return alunoNav
   return alunoNav
 }
@@ -101,8 +131,13 @@ export function showConfiguracoesLink(role: UserRole | null | undefined): boolea
   return isStaffRole(role ?? "aluno")
 }
 
-export function sidebarBrandSubtitle(role: UserRole | null | undefined): string {
+export function sidebarBrandSubtitle(
+  role: UserRole | null | undefined,
+  planType?: string | null,
+): string {
   if (isStaffRole(role ?? "aluno")) return "Academia Pro"
-  if (isUsuarioRole(role ?? "aluno")) return "Fitness"
+  if (isUsuarioRole(role ?? "aluno")) {
+    return isNutricaoOnlyPlan(planType) ? "Nutrição" : "Fitness"
+  }
   return "Aluno"
 }

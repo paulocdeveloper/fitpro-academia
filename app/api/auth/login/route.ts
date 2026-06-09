@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
-import { query } from "@/lib/db"
+import { execute, query } from "@/lib/db"
 import { getDbConnectionInfo } from "@/lib/db-config"
 import { isMissingColumn, mapDbConnectionError } from "@/lib/db-errors"
 import { ensureUserAcademiaId } from "@/lib/auth/resolve-academia"
@@ -124,6 +124,20 @@ export async function POST(req: Request) {
       email: user.email,
       academiaId,
     })
+
+    // Auditoria de login: best-effort (não bloqueia o login em caso de falha)
+    try {
+      const ua = req.headers.get("user-agent") ?? null
+      const fwd = req.headers.get("x-forwarded-for")
+      const ip = fwd ? fwd.split(",")[0]?.trim() : (req.headers.get("x-real-ip") ?? null)
+      await execute(
+        `INSERT INTO usuarios_login_log (user_id, academia_id, email, ip, user_agent)
+         VALUES (?, ?, ?, ?, ?)`,
+        [user.id, academiaId, user.email, ip, ua],
+      )
+    } catch (logErr) {
+      console.warn("login: falha ao gravar usuarios_login_log", logErr)
+    }
 
     const res = NextResponse.json({
       ok: true,

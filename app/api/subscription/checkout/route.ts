@@ -9,10 +9,12 @@ import {
   activatePremiumSubscriptionMock,
   loadUserSubscription,
 } from "@/lib/premium/subscription"
+import { getBillingPlan } from "@/lib/premium/billing-plans"
 import { PREMIUM_PLAN } from "@/lib/premium/types"
 
 type Body = {
   provider?: "mock" | "mercadopago"
+  plan?: string
 }
 
 export async function POST(req: Request) {
@@ -67,6 +69,11 @@ export async function POST(req: Request) {
     return res
   }
 
+  const billingPlan = getBillingPlan(body.plan ?? "mensal")
+  if (!billingPlan) {
+    return NextResponse.json({ error: "Plano de assinatura inválido." }, { status: 400 })
+  }
+
   if (!isMercadoPagoConfigured()) {
     return NextResponse.json(
       {
@@ -82,6 +89,7 @@ export async function POST(req: Request) {
       userId: auth.session.userId,
       academiaId: auth.session.academiaId,
       payerEmail: auth.session.email,
+      billingPlan,
     })
 
     await setUserPaymentPending({
@@ -95,7 +103,8 @@ export async function POST(req: Request) {
       academiaId: auth.session.academiaId,
       preapprovalId,
       checkoutUrl,
-      plan: PREMIUM_PLAN.priceBrl,
+      billingPlan: billingPlan.slug,
+      priceBrl: billingPlan.priceBrl,
       provider: "mercadopago",
     })
 
@@ -105,6 +114,7 @@ export async function POST(req: Request) {
       checkoutUrl,
       preapprovalId,
       plan: PREMIUM_PLAN,
+      billingPlan,
       subscription: await loadUserSubscription(auth.session.userId, auth.session.role),
     })
   } catch (e) {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireAuth } from "@/lib/api/require-auth"
 import { isFitnessRole, isStaffRole, isUsuarioRole } from "@/lib/auth/roles"
+import { hasNutritionAccess, hasWorkoutAccess, WORKOUT_BLOCKED_MESSAGE } from "@/lib/premium/plan-access"
 import { loadUserSubscription } from "@/lib/premium/subscription"
 import { PREMIUM_PLAN } from "@/lib/premium/types"
 
@@ -16,7 +17,20 @@ export async function requireFitnessCoach(req: Request) {
   if (isFitnessRole(auth.session.role)) {
     if (isUsuarioRole(auth.session.role)) {
       const subscription = await loadUserSubscription(auth.session.userId, auth.session.role)
-      if (!subscription.isPremium) {
+      if (!hasWorkoutAccess(auth.session.role, subscription.planType)) {
+        return {
+          ok: false as const,
+          response: NextResponse.json(
+            {
+              error: WORKOUT_BLOCKED_MESSAGE,
+              code: "WORKOUT_PLAN_BLOCKED",
+              upgradeUrl: "/premium",
+            },
+            { status: 403 },
+          ),
+        }
+      }
+      if (!hasNutritionAccess(auth.session.role, subscription.planType, subscription.isPremium)) {
         return {
           ok: false as const,
           response: NextResponse.json(

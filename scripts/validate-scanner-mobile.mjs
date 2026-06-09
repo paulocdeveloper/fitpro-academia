@@ -27,7 +27,7 @@ const checks = [
   ["UI sem bloqueada genérica", !/Permissão da câmera bloqueada/.test(scanner)],
   ["Título negada só denied", /Permissão da câmera negada/.test(camera)],
   ["active-stream log", /active-stream/.test(camera + scanner)],
-  ["Estabilização antes da captura (≥55%)", /stability < 0\.55/.test(scanner)],
+  ["Estabilização antes da captura", /STABILITY_CAPTURE_MIN/.test(scanner)],
   ["playsInline (iOS Safari)", /playsInline/.test(scanner)],
   ["Toggle câmera traseira/frontal", /SwitchCamera/.test(scanner)],
   ["Overlay visual de scan", /ScanLine|scan overlay/i.test(scanner)],

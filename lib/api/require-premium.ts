@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireAuth, type AuthResult } from "@/lib/api/require-auth"
 import { isUsuarioRole } from "@/lib/auth/roles"
+import { hasNutritionAccess } from "@/lib/premium/plan-access"
 import { loadUserSubscription } from "@/lib/premium/subscription"
 import { PREMIUM_PLAN } from "@/lib/premium/types"
 
@@ -18,7 +19,7 @@ export async function requirePremiumNutrition(req: Request): Promise<
   }
 
   const subscription = await loadUserSubscription(auth.session.userId, auth.session.role)
-  if (!subscription.isPremium) {
+  if (!hasNutritionAccess(auth.session.role, subscription.planType, subscription.isPremium)) {
     return {
       ok: false,
       response: NextResponse.json(
