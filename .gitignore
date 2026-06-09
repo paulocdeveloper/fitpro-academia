@@ -23,4 +23,5 @@ pnpm-debug.log*
 
 # IDE / artefatos locais
 .vscode/
-lh-seo*.jsonlighthouse-report.json
+lh-seo*.json
+lighthouse-report.json
